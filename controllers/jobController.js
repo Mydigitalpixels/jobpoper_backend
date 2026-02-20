@@ -744,7 +744,9 @@ const getHotJobs = asyncHandler(async (req, res) => {
       status: 'open',
       urgency: 'Urgent'
     };
-
+    if (req.user) {
+      initialMatch.postedBy = { $ne: new mongoose.Types.ObjectId(req.user._id) };
+    }
 
     let pipeline = [
       {
@@ -957,7 +959,9 @@ const searchHotJobs = asyncHandler(async (req, res) => {
       urgency: 'Urgent',
       title: { $regex: search, $options: 'i' } // Add title search
     };
-
+    if (req.user) {
+      initialMatch.postedBy = { $ne: new mongoose.Types.ObjectId(req.user._id) };
+    }
 
     let pipeline = [
       {
@@ -1087,7 +1091,9 @@ const getNormalJobs = asyncHandler(async (req, res) => {
       status: 'open',
       urgency: 'Normal'
     };
-
+    if (req.user) {
+      initialMatch.postedBy = { $ne: new mongoose.Types.ObjectId(req.user._id) };
+    }
 
     let pipeline = [
       {
@@ -1224,7 +1230,9 @@ const searchNormalJobs = asyncHandler(async (req, res) => {
       urgency: 'Normal',
       title: { $regex: search, $options: 'i' } // Add title search
     };
-
+    if (req.user) {
+      initialMatch.postedBy = { $ne: new mongoose.Types.ObjectId(req.user._id) };
+    }
 
     let pipeline = [
       {
