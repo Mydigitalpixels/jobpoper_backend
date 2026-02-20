@@ -1,8 +1,26 @@
 const asyncHandler = require("express-async-handler");
 const mongoose = require("mongoose");
 const Job = require("../models/Job");
+const Location = require("../models/Location");
 const Notification = require("../models/Notification");
 const User = require("../models/User");
+
+/** Get job coordinates for distance calculations. OnSite: single location; Pickup: source. */
+const getJobCoordinates = (job) => {
+  if (!job || !job.location) return null;
+  let lat, lng;
+  if (job.jobType === "OnSite") {
+    lat = job.location.latitude;
+    lng = job.location.longitude;
+  } else if (job.jobType === "Pickup" && job.location.source) {
+    lat = job.location.source.latitude;
+    lng = job.location.source.longitude;
+  } else {
+    return null;
+  }
+  if (typeof lat !== "number" || typeof lng !== "number") return null;
+  return { lat, lng };
+};
 
 // Helper function to extract location strings from job location
 const extractLocationStrings = (jobLocation, jobType) => {
@@ -60,121 +78,130 @@ const extractLocationStrings = (jobLocation, jobType) => {
   return [...new Set(locations.filter((loc) => loc && loc.trim().length > 0))];
 };
 
-// Helper function to create notifications for users in same location
+// Helper: create in-app notifications for users with a saved Location within 50km of the job (Haversine).
 const createJobCreatedNotifications = async (job, jobCreatorId) => {
+  const RADIUS_KM = 50;
+  const MAX_RECIPIENTS = 500;
+
   try {
-    console.log(
-      "[NOTIFICATION] Starting notification creation for job:",
-      job._id,
-    );
-    console.log(
-      "[NOTIFICATION] Job location:",
-      JSON.stringify(job.location, null, 2),
-    );
-    console.log("[NOTIFICATION] Job type:", job.jobType);
-
-    const locationStrings = extractLocationStrings(job.location, job.jobType);
-    console.log("[NOTIFICATION] Extracted location strings:", locationStrings);
-
-    if (locationStrings.length === 0) {
+    const coords = getJobCoordinates(job);
+    if (!coords) {
       console.log(
-        "[NOTIFICATION] No location strings extracted, skipping notifications",
+        "[NOTIFICATION] No job coordinates available, skipping notifications for job:",
+        job._id,
       );
-      return; // No location data to match
+      return;
     }
 
-    // Build query to find users with matching location
-    // Match if user's profile.location contains any of the location strings OR
-    // if any location string contains the user's profile.location
-    const locationQueries = [];
+    const jobLat = coords.lat;
+    const jobLng = coords.lng;
+    const creatorObjectId = new mongoose.Types.ObjectId(jobCreatorId);
 
-    // Match user location containing job location strings
-    locationStrings.forEach((loc) => {
-      locationQueries.push({
-        "profile.location": { $regex: loc, $options: "i" },
-      });
-    });
+    // Haversine in aggregation: distance from each Location's lat/lng to (jobLat, jobLng)
+    const nearbyUserIds = await Location.aggregate([
+      { $match: { user: { $ne: creatorObjectId } } },
+      {
+        $addFields: {
+          distance: {
+            $let: {
+              vars: {
+                dLat: {
+                  $degreesToRadians: { $subtract: ["$latitude", jobLat] },
+                },
+                dLng: {
+                  $degreesToRadians: { $subtract: ["$longitude", jobLng] },
+                },
+                lat1: { $degreesToRadians: jobLat },
+                lat2: { $degreesToRadians: "$latitude" },
+                radius: 6371,
+              },
+              in: {
+                $multiply: [
+                  "$$radius",
+                  2,
+                  {
+                    $asin: {
+                      $sqrt: {
+                        $add: [
+                          {
+                            $pow: [
+                              { $sin: { $divide: ["$$dLat", 2] } },
+                              2,
+                            ],
+                          },
+                          {
+                            $multiply: [
+                              { $cos: "$$lat1" },
+                              { $cos: "$$lat2" },
+                              {
+                                $pow: [
+                                  { $sin: { $divide: ["$$dLng", 2] } },
+                                  2,
+                                ],
+                              },
+                            ],
+                          },
+                        ],
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+      { $match: { distance: { $lte: RADIUS_KM } } },
+      { $group: { _id: "$user" } },
+      { $limit: MAX_RECIPIENTS },
+    ]);
 
-    // Also match if job location strings contain user location (bidirectional)
-    // We'll do this by getting all users first and filtering in memory
-    // OR we can use $expr for more complex matching
+    const userIds = nearbyUserIds.map((doc) => doc._id);
+    if (userIds.length === 0) {
+      console.log(
+        "[NOTIFICATION] No nearby users (within",
+        RADIUS_KM,
+        "km), skipping for job:",
+        job._id,
+      );
+      return;
+    }
 
-    console.log("[NOTIFICATION] Location query count:", locationQueries.length);
-
-    // Find users with matching location, excluding the job creator
-    // First, get all active users with complete profiles
-    let matchingUsers = await User.find({
-      _id: { $ne: jobCreatorId },
+    // Only notify active users
+    const activeUsers = await User.find({
+      _id: { $in: userIds },
       isActive: true,
-      "profile.isProfileComplete": true,
-      "profile.location": { $exists: true, $ne: null, $ne: "" },
-    }).select("_id profile.location");
+    }).select("_id");
+    const activeIds = new Set(activeUsers.map((u) => u._id.toString()));
 
-    console.log(
-      "[NOTIFICATION] Total active users with locations:",
-      matchingUsers.length,
+    const jobCreator = await User.findById(jobCreatorId).select(
+      "profile.fullName",
     );
-
-    // Filter users where location matches (bidirectional matching)
-    matchingUsers = matchingUsers.filter((user) => {
-      const userLocation = user.profile?.location?.toLowerCase() || "";
-      if (!userLocation) return false;
-
-      // Check if any job location string is in user location OR user location is in any job location string
-      return locationStrings.some((jobLoc) => {
-        const jobLocLower = jobLoc.toLowerCase();
-        return (
-          userLocation.includes(jobLocLower) ||
-          jobLocLower.includes(userLocation)
-        );
-      });
-    });
-
-    console.log("[NOTIFICATION] Found matching users:", matchingUsers.length);
-    if (matchingUsers.length > 0) {
-      console.log(
-        "[NOTIFICATION] Matching user locations:",
-        matchingUsers.map((u) => u.profile?.location),
-      );
-    }
-
-    if (matchingUsers.length === 0) {
-      console.log(
-        "[NOTIFICATION] No matching users found, skipping notifications",
-      );
-      return; // No users to notify
-    }
-
-    // Get job creator info for notification message
-    const jobCreator =
-      await User.findById(jobCreatorId).select("profile.fullName");
     const creatorName = jobCreator?.profile?.fullName || "Someone";
 
-    // Create notifications for all matching users
-    const notifications = matchingUsers.map((user) => ({
-      recipient: user._id,
-      type: "job_created",
-      title: "New Job Available",
-      message: `${creatorName} posted a new job: ${job.title}`,
-      relatedEntityType: "Job",
-      relatedEntityId: job._id,
-      navigationIdentifier: `job:${job._id}`,
-      isRead: false,
-    }));
+    const notifications = userIds
+      .filter((id) => activeIds.has(id.toString()))
+      .map((userId) => ({
+        recipient: userId,
+        type: "job_created",
+        title: "New job near you",
+        message: `${creatorName} posted a new job: ${job.title}`,
+        relatedEntityType: "Job",
+        relatedEntityId: job._id,
+        navigationIdentifier: `job:${job._id}`,
+        isRead: false,
+      }));
 
-    console.log(
-      "[NOTIFICATION] Creating",
-      notifications.length,
-      "notifications",
-    );
+    if (notifications.length === 0) return;
+
     const result = await Notification.insertMany(notifications);
     console.log(
-      "[NOTIFICATION] Successfully created",
+      "[NOTIFICATION] Created",
       result.length,
-      "notifications",
+      "job_created notifications for job:",
+      job._id,
     );
   } catch (error) {
-    // Log error but don't fail the job creation
     console.error("[NOTIFICATION] Error creating job notifications:", error);
     console.error("[NOTIFICATION] Error stack:", error.stack);
   }
