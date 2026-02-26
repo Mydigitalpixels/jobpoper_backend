@@ -297,11 +297,24 @@ const checkPhoneExists = asyncHandler(async (req, res) => {
 // @access  Private
 const completeProfile = asyncHandler(async (req, res) => {
   const { fullName, email, location, dateOfBirth } = req.body;
-
   const user = req.user;
+
+  console.log("[PROFILE] completeProfile called", {
+    userId: user?._id,
+    phoneNumber: user?.phoneNumber,
+    hasFullName: !!fullName,
+    hasEmail: !!email,
+    hasLocation: !!location,
+    hasDob: !!dateOfBirth,
+  });
 
   // Validate required fields
   if (!fullName || !email) {
+    console.warn("[PROFILE] Validation failed: fullName/email missing", {
+      userId: user?._id,
+      fullNameProvided: !!fullName,
+      emailProvided: !!email,
+    });
     return res.status(400).json({
       status: 'error',
       message: 'Full name and email are required'
@@ -311,6 +324,10 @@ const completeProfile = asyncHandler(async (req, res) => {
   try {
     // Validate email format if provided
     if (email && !/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/.test(email)) {
+      console.warn("[PROFILE] Validation failed: invalid email format", {
+        userId: user?._id,
+        email,
+      });
       return res.status(400).json({
         status: 'error',
         message: 'Please enter a valid email address'
@@ -318,6 +335,11 @@ const completeProfile = asyncHandler(async (req, res) => {
     }
 
     // Update profile
+    console.log("[PROFILE] Updating profile fields for user", user._id, {
+      hasLocation: !!location,
+      hasDob: !!dateOfBirth,
+      hasProfileImage: !!req.processedFileName,
+    });
     user.profile.fullName = fullName;
     user.profile.email = email;
     user.profile.location = location || user.profile.location;
@@ -328,8 +350,13 @@ const completeProfile = asyncHandler(async (req, res) => {
     }
     user.profile.isProfileComplete = true;
 
+    console.log("[PROFILE] Saving updated profile to DB for user", user._id);
     await user.save();
+    console.log("[PROFILE] Profile save successful for user", user._id);
 
+    console.log("[PROFILE] completeProfile responding success", {
+      userId: user._id,
+    });
     res.status(200).json({
       status: 'success',
       message: 'Profile completed successfully',
@@ -344,6 +371,11 @@ const completeProfile = asyncHandler(async (req, res) => {
       }
     });
   } catch (error) {
+    console.error("[PROFILE] Error completing profile", {
+      userId: user?._id,
+      error: error.message,
+      stack: error.stack,
+    });
     res.status(500).json({
       status: 'error',
       message: 'Failed to update profile',
