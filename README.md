@@ -61,7 +61,6 @@ jobpoper_backend/
 - `NODE_ENV`: Environment (development/production)
 - `MONGODB_URI`: MongoDB connection string
 - `JWT_SECRET`: JWT secret key
-- `JWT_EXPIRE`: JWT expiration time
 - `CORS_ORIGIN`: CORS allowed origin
 
 ## API Endpoints

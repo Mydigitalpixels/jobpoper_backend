@@ -7,7 +7,6 @@ MONGODB_URI=mongodb+srv://alphawolf091994_db_jobpoper:6pCBfJqm4e9798t0@clusterjo
 
 # JWT Configuration
 JWT_SECRET=your-super-secret-jwt-key-here
-JWT_EXPIRE=7d
 
 # CORS Configuration
 CORS_ORIGIN=http://localhost:3000
