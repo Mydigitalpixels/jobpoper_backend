@@ -8,6 +8,17 @@ const PhoneVerification = require('../models/PhoneVerification');
 const TwilioService = require('../services/twilioService');
 const { generateToken } = require('../middleware/auth');
 
+const buildUserResponse = (user) => ({
+  id: user._id,
+  phoneNumber: user.phoneNumber,
+  isVerified: user.isVerified,
+  isPhoneVerified: user.isPhoneVerified,
+  profile: user.profile,
+  verification: user.verification,
+  role: user.role,
+  lastLogin: user.lastLogin
+});
+
 // @desc    Send phone verification code
 // @route   POST /api/auth/send-verification
 // @access  Public
@@ -166,7 +177,8 @@ const register = asyncHandler(async (req, res) => {
     const user = await User.create({
       phoneNumber,
       pin,
-      isPhoneVerified: true
+      isPhoneVerified: true,
+      isVerified: false
     });
 
     // Generate JWT token
@@ -177,13 +189,7 @@ const register = asyncHandler(async (req, res) => {
       message: 'User registered successfully',
       data: {
         token,
-        user: {
-          id: user._id,
-          phoneNumber: user.phoneNumber,
-          isPhoneVerified: user.isPhoneVerified,
-          isProfileComplete: user.profile.isProfileComplete,
-          role: user.role
-        }
+        user: buildUserResponse(user)
       }
     });
   } catch (error) {
@@ -246,13 +252,7 @@ const login = asyncHandler(async (req, res) => {
     message: 'Login successful',
     data: {
       token,
-      user: {
-        id: user._id,
-        phoneNumber: user.phoneNumber,
-        isPhoneVerified: user.isPhoneVerified,
-        isProfileComplete: user.profile.isProfileComplete,
-        role: user.role
-      }
+      user: buildUserResponse(user)
     }
   });
 });
@@ -361,13 +361,7 @@ const completeProfile = asyncHandler(async (req, res) => {
       status: 'success',
       message: 'Profile completed successfully',
       data: {
-        user: {
-          id: user._id,
-          phoneNumber: user.phoneNumber,
-          profile: user.profile,
-          isProfileComplete: user.profile.isProfileComplete,
-          role: user.role
-        }
+        user: buildUserResponse(user)
       }
     });
   } catch (error) {
@@ -393,14 +387,172 @@ const getMe = asyncHandler(async (req, res) => {
   res.status(200).json({
     status: 'success',
     data: {
-      user: {
+      user: buildUserResponse(user)
+    }
+  });
+});
+
+// @desc    Get current verification status
+// @route   GET /api/auth/verification-status
+// @access  Private
+const getVerificationStatus = asyncHandler(async (req, res) => {
+  const user = req.user;
+
+  res.status(200).json({
+    status: 'success',
+    message: 'Verification status fetched successfully',
+    data: {
+      isVerified: user.isVerified,
+      verification: user.verification
+    }
+  });
+});
+
+// @desc    Submit verification documents
+// @route   PUT /api/auth/verification-documents
+// @access  Private
+const submitVerificationDocuments = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user._id);
+
+  if (!user) {
+    return res.status(404).json({
+      status: 'error',
+      message: 'User not found'
+    });
+  }
+
+  const selfieImage = req.processedVerificationFiles?.selfie;
+  const idPhotoImage = req.processedVerificationFiles?.photoId;
+
+  if (!selfieImage || !idPhotoImage) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Both selfie and photo ID are required'
+    });
+  }
+
+  user.verification.selfieImage = `verification/selfies/${selfieImage}`;
+  user.verification.idPhotoImage = `verification/id-documents/${idPhotoImage}`;
+  user.verification.status = 'under_review';
+  user.verification.submittedAt = new Date();
+  user.verification.reviewedAt = null;
+  user.verification.reviewNotes = '';
+  user.isVerified = false;
+
+  await user.save();
+
+  res.status(200).json({
+    status: 'success',
+    message: 'Verification documents submitted successfully and are now under review',
+    data: {
+      isVerified: user.isVerified,
+      verification: user.verification,
+      user: buildUserResponse(user)
+    }
+  });
+});
+
+// @desc    Get verification requests for admin
+// @route   GET /api/auth/verification-requests
+// @access  Private/Admin
+const getVerificationRequests = asyncHandler(async (req, res) => {
+  const { status = 'under_review', page = 1, limit = 20 } = req.query;
+  const pageNumber = Math.max(parseInt(page, 10) || 1, 1);
+  const limitNumber = Math.max(parseInt(limit, 10) || 20, 1);
+
+  const query = {};
+  if (status && status !== 'all') {
+    query['verification.status'] = status;
+  }
+
+  const [users, total] = await Promise.all([
+    User.find(query)
+      .select('phoneNumber profile.fullName isVerified verification createdAt')
+      .sort({ 'verification.submittedAt': -1, createdAt: -1 })
+      .skip((pageNumber - 1) * limitNumber)
+      .limit(limitNumber),
+    User.countDocuments(query)
+  ]);
+
+  res.status(200).json({
+    status: 'success',
+    message: 'Verification requests fetched successfully',
+    data: {
+      requests: users.map((user) => ({
         id: user._id,
         phoneNumber: user.phoneNumber,
-        isPhoneVerified: user.isPhoneVerified,
-        profile: user.profile,
-        role: user.role,
-        lastLogin: user.lastLogin
+        fullName: user.profile?.fullName || '',
+        isVerified: user.isVerified,
+        verification: user.verification,
+        createdAt: user.createdAt
+      })),
+      pagination: {
+        currentPage: pageNumber,
+        limit: limitNumber,
+        total,
+        totalPages: Math.ceil(total / limitNumber)
       }
+    }
+  });
+});
+
+// @desc    Review verification request
+// @route   PUT /api/auth/verification-requests/:userId/review
+// @access  Private/Admin
+const reviewVerificationRequest = asyncHandler(async (req, res) => {
+  const { userId } = req.params;
+  const { status, reviewNotes = '' } = req.body;
+
+  if (!['approved', 'rejected'].includes(status)) {
+    return res.status(400).json({
+      status: 'error',
+      message: "Status must be either 'approved' or 'rejected'"
+    });
+  }
+
+  const user = await User.findById(userId);
+
+  if (!user) {
+    return res.status(404).json({
+      status: 'error',
+      message: 'User not found'
+    });
+  }
+
+  if (!user.verification?.selfieImage || !user.verification?.idPhotoImage) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Verification documents have not been submitted for this user'
+    });
+  }
+
+  user.verification.status = status;
+  user.verification.reviewedAt = new Date();
+  user.verification.reviewNotes = reviewNotes;
+  user.isVerified = status === 'approved';
+
+  await user.save();
+
+  await Notification.create({
+    recipient: user._id,
+    type: 'verification_review',
+    title: status === 'approved' ? 'Verification approved' : 'Verification rejected',
+    message:
+      status === 'approved'
+        ? 'Your verification has been approved. You can now access verified features.'
+        : `Your verification was rejected.${reviewNotes ? ` Reason: ${reviewNotes}` : ' Please review and submit again.'}`,
+    relatedEntityType: 'User',
+    relatedEntityId: user._id,
+    navigationIdentifier: 'verification:details'
+  });
+
+  res.status(200).json({
+    status: 'success',
+    message: `Verification request ${status} successfully`,
+    data: {
+      isVerified: user.isVerified,
+      verification: user.verification,
+      user: buildUserResponse(user)
     }
   });
 });
@@ -674,6 +826,10 @@ module.exports = {
   checkPhoneExists,
   completeProfile,
   getMe,
+  getVerificationStatus,
+  submitVerificationDocuments,
+  getVerificationRequests,
+  reviewVerificationRequest,
   changePin,
   sendForgotPasswordOtp,
   verifyForgotPasswordOtp,

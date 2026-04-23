@@ -17,8 +17,16 @@ app.use(express.urlencoded({ extended: true }));
 // Static serving for uploaded files
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
+const adminDistPath = path.join(__dirname, "admin-panel", "dist");
+const hasAdminBuild = require("fs").existsSync(adminDistPath);
+
+if (hasAdminBuild) {
+  app.use("/admin", express.static(adminDistPath));
+}
+
 // Routes
 app.use("/api/auth", require("./routes/auth"));
+app.use("/api/admin", require("./routes/admin"));
 app.use("/api/users", require("./routes/users"));
 app.use("/api/jobs", require("./routes/jobs"));
 app.use("/api/locations", require("./routes/locations"));
@@ -33,6 +41,12 @@ app.get("/", (req, res) => {
     status: "success",
   });
 });
+
+if (hasAdminBuild) {
+  app.get(/^\/admin(\/.*)?$/, (req, res) => {
+    res.sendFile(path.join(adminDistPath, "index.html"));
+  });
+}
 
 // Error handling middleware
 app.use((err, req, res, next) => {

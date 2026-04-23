@@ -107,9 +107,47 @@ const uploadJobImages = [
   }
 ];
 
+// Verification documents: selfie + photo ID
+const uploadVerificationDocuments = [
+  upload.fields([
+    { name: 'selfie', maxCount: 1 },
+    { name: 'photoId', maxCount: 1 }
+  ]),
+  async (req, res, next) => {
+    try {
+      const files = req.files || {};
+      const processed = {
+        selfie: null,
+        photoId: null
+      };
+
+      if (files.selfie?.[0]) {
+        const selfieFile = files.selfie[0];
+        const selfieFilename = generateFileName('selfie');
+        const selfieDir = path.join(__dirname, '..', 'uploads', 'verification', 'selfies');
+        await processAndSave(selfieFile.buffer, selfieDir, selfieFilename);
+        processed.selfie = selfieFilename;
+      }
+
+      if (files.photoId?.[0]) {
+        const idFile = files.photoId[0];
+        const idFilename = generateFileName('photo-id');
+        const idDir = path.join(__dirname, '..', 'uploads', 'verification', 'id-documents');
+        await processAndSave(idFile.buffer, idDir, idFilename);
+        processed.photoId = idFilename;
+      }
+
+      req.processedVerificationFiles = processed;
+      return next();
+    } catch (err) {
+      return next(err);
+    }
+  }
+];
+
 module.exports = {
   uploadProfileImage,
-  uploadJobImages
+  uploadJobImages,
+  uploadVerificationDocuments
 };
-
 

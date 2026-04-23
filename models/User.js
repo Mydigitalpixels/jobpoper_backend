@@ -13,6 +13,10 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  isVerified: {
+    type: Boolean,
+    default: false
+  },
   pin: {
     type: String,
     required: [true, 'PIN is required']
@@ -45,6 +49,34 @@ const userSchema = new mongoose.Schema({
     isProfileComplete: {
       type: Boolean,
       default: false
+    }
+  },
+  verification: {
+    selfieImage: {
+      type: String,
+      default: null
+    },
+    idPhotoImage: {
+      type: String,
+      default: null
+    },
+    status: {
+      type: String,
+      enum: ['not_submitted', 'under_review', 'approved', 'rejected'],
+      default: 'not_submitted'
+    },
+    submittedAt: {
+      type: Date,
+      default: null
+    },
+    reviewedAt: {
+      type: Date,
+      default: null
+    },
+    reviewNotes: {
+      type: String,
+      trim: true,
+      default: ''
     }
   },
   role: {

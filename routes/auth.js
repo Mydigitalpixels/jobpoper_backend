@@ -13,10 +13,14 @@ const {
   sendForgotPasswordOtp,
   verifyForgotPasswordOtp,
   resetPin,
-  deleteAccount
+  deleteAccount,
+  submitVerificationDocuments,
+  getVerificationStatus,
+  getVerificationRequests,
+  reviewVerificationRequest
 } = require('../controllers/authController');
-const { protect } = require('../middleware/auth');
-const { uploadProfileImage } = require('../middleware/upload');
+const { protect, authorize } = require('../middleware/auth');
+const { uploadProfileImage, uploadVerificationDocuments } = require('../middleware/upload');
 
 // Public routes
 router.post('/send-verification', sendPhoneVerification);
@@ -35,7 +39,11 @@ router.post('/forgot-password/reset-pin', resetPin);
 router.use(protect); // All routes below this middleware are protected
 router.get('/me', getMe);
 router.put('/complete-profile', uploadProfileImage, completeProfile);
+router.get('/verification-status', getVerificationStatus);
+router.put('/verification-documents', uploadVerificationDocuments, submitVerificationDocuments);
 router.put('/change-pin', changePin);
 router.delete('/delete-account', deleteAccount);
+router.get('/verification-requests', authorize('admin'), getVerificationRequests);
+router.put('/verification-requests/:userId/review', authorize('admin'), reviewVerificationRequest);
 
 module.exports = router;
