@@ -30,6 +30,11 @@ const upload = multer({
   fileFilter: imageOnlyFilter
 });
 
+const uploadWithoutFormatRestriction = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024 }, // 8MB per file
+});
+
 async function processAndSave(buffer, destDir, filename) {
   ensureDir(destDir);
   const fullPath = path.join(destDir, filename);
@@ -39,6 +44,16 @@ async function processAndSave(buffer, destDir, filename) {
     .webp({ quality: 80 })
     .toFile(fullPath);
   return filename;
+}
+
+function saveOriginalFile(buffer, destDir, generatedFileName, originalName) {
+  const originalExtension =
+    (path.extname(originalName || "").toLowerCase() || ".bin");
+  const fallbackFileName = `${path.parse(generatedFileName).name}${originalExtension}`;
+  const fullPath = path.join(destDir, fallbackFileName);
+  ensureDir(destDir);
+  fs.writeFileSync(fullPath, buffer);
+  return fallbackFileName;
 }
 
 // Profile image: single file under uploads/profiles
@@ -73,21 +88,24 @@ const uploadJobImages = [
       for (const file of req.files) {
         let filename = generateFileName('job');
         let success = false;
+        let fallbackPath = null;
         try {
           await processAndSave(file.buffer, destDir, filename);
           success = true;
         } catch (err) {
           // Fallback: save original buffer without conversion (e.g., HEIC)
           try {
-            const origExt = (path.extname(file.originalname) || '').toLowerCase() || '.bin';
-            filename = `${path.parse(filename).name}${origExt}`;
-            ensureDir(destDir);
-            const fullPath = path.join(destDir, filename);
-            fs.writeFileSync(fullPath, file.buffer);
+            filename = saveOriginalFile(
+              file.buffer,
+              destDir,
+              filename,
+              file.originalname,
+            );
+            fallbackPath = path.join(destDir, filename);
             success = true;
           } catch (fallbackErr) {
             // Remove partially written file if any error during fallback
-            try { fs.unlinkSync(fullPath); } catch (e) {}
+            try { if (fallbackPath) fs.unlinkSync(fallbackPath); } catch (e) {}
             console.warn('Failed to save fallback attachment:', fallbackErr.message);
             errors++;
           }
@@ -109,7 +127,7 @@ const uploadJobImages = [
 
 // Verification documents: selfie + photo ID
 const uploadVerificationDocuments = [
-  upload.fields([
+  uploadWithoutFormatRestriction.fields([
     { name: 'selfie', maxCount: 1 },
     { name: 'photoId', maxCount: 1 }
   ]),
@@ -123,17 +141,35 @@ const uploadVerificationDocuments = [
 
       if (files.selfie?.[0]) {
         const selfieFile = files.selfie[0];
-        const selfieFilename = generateFileName('selfie');
+        let selfieFilename = generateFileName('selfie');
         const selfieDir = path.join(__dirname, '..', 'uploads', 'verification', 'selfies');
-        await processAndSave(selfieFile.buffer, selfieDir, selfieFilename);
+        try {
+          await processAndSave(selfieFile.buffer, selfieDir, selfieFilename);
+        } catch (error) {
+          selfieFilename = saveOriginalFile(
+            selfieFile.buffer,
+            selfieDir,
+            selfieFilename,
+            selfieFile.originalname,
+          );
+        }
         processed.selfie = selfieFilename;
       }
 
       if (files.photoId?.[0]) {
         const idFile = files.photoId[0];
-        const idFilename = generateFileName('photo-id');
+        let idFilename = generateFileName('photo-id');
         const idDir = path.join(__dirname, '..', 'uploads', 'verification', 'id-documents');
-        await processAndSave(idFile.buffer, idDir, idFilename);
+        try {
+          await processAndSave(idFile.buffer, idDir, idFilename);
+        } catch (error) {
+          idFilename = saveOriginalFile(
+            idFile.buffer,
+            idDir,
+            idFilename,
+            idFile.originalname,
+          );
+        }
         processed.photoId = idFilename;
       }
 
@@ -150,4 +186,3 @@ module.exports = {
   uploadJobImages,
   uploadVerificationDocuments
 };
-
