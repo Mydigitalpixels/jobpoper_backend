@@ -40,11 +40,14 @@ const registerDevice = asyncHandler(async (req, res) => {
 // @desc    Unregister a device (logout) — by client deviceId
 // @route   DELETE /api/devices/:deviceId
 // @access  Private
+// Note: Keep pushNotificationToken so FCM can still reach this physical device for
+// account-specific pushes (e.g. verification_review) after the user logs out. Rows stay
+// isActive: false so routine pushes (jobs, etc.) still target only active sessions.
 const unregisterDevice = asyncHandler(async (req, res) => {
   const { deviceId } = req.params;
   await Device.updateOne(
     { user: req.user._id, deviceId: String(deviceId) },
-    { $set: { isActive: false, pushNotificationToken: "" } },
+    { $set: { isActive: false } },
   );
   res.json({ status: "success", message: "Device unregistered" });
 });

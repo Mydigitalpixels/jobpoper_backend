@@ -95,21 +95,32 @@ async function sendPushToUserForNotification(
     data.relatedEntityType = String(notification.relatedEntityType);
   }
 
-  const devices = await Device.find({
+  const notifyType = String(notification.type || "");
+  const deviceQuery = {
     user: userId,
-    isActive: true,
     pushNotificationToken: { $exists: true, $ne: "" },
-  }).lean();
+  };
+  // Logged-out devices stay isActive:false but keep token so verification (and similar)
+  // can still notify the correct account on a shared physical device.
+  if (notifyType !== "verification_review") {
+    deviceQuery.isActive = true;
+  }
 
-  const valid = devices
-    .map((d) => d.pushNotificationToken)
-    .filter(
-      (t) =>
-        t &&
-        t !== "pending" &&
-        typeof t === "string" &&
-        t.length > 10,
-    );
+  const devices = await Device.find(deviceQuery).lean();
+
+  const valid = [
+    ...new Set(
+      devices
+        .map((d) => d.pushNotificationToken)
+        .filter(
+          (t) =>
+            t &&
+            t !== "pending" &&
+            typeof t === "string" &&
+            t.length > 10,
+        ),
+    ),
+  ];
   if (!valid.length) {
     return { sent: 0, skipped: true, reason: "no_tokens" };
   }
