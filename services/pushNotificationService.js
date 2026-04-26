@@ -91,6 +91,9 @@ async function sendPushToUserForNotification(
   if (notification.relatedEntityId) {
     data.relatedEntityId = String(notification.relatedEntityId);
   }
+  if (notification.relatedEntityType) {
+    data.relatedEntityType = String(notification.relatedEntityType);
+  }
 
   const devices = await Device.find({
     user: userId,

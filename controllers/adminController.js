@@ -2,7 +2,9 @@ const asyncHandler = require("express-async-handler");
 const User = require("../models/User");
 const Job = require("../models/Job");
 const Notification = require("../models/Notification");
+const Device = require("../models/Device");
 const { generateToken } = require("../middleware/auth");
+const { sendPushToUserForNotification } = require("../services/pushNotificationService");
 
 const buildAdminUser = (user) => ({
   id: user._id,
@@ -351,7 +353,7 @@ const reviewVerificationRequest = asyncHandler(async (req, res) => {
 
   await user.save();
 
-  await Notification.create({
+  const verificationNotif = await Notification.create({
     recipient: user._id,
     type: "verification_review",
     title:
@@ -364,6 +366,9 @@ const reviewVerificationRequest = asyncHandler(async (req, res) => {
     relatedEntityId: user._id,
     navigationIdentifier: "verification:details",
   });
+  sendPushToUserForNotification(user._id, verificationNotif, Device).catch((e) =>
+    console.warn("[FCM] verification_review push failed", e && e.message),
+  );
 
   res.status(200).json({
     status: "success",

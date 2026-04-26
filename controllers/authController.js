@@ -4,8 +4,10 @@ const User = require('../models/User');
 const Job = require('../models/Job');
 const Location = require('../models/Location');
 const Notification = require('../models/Notification');
+const Device = require('../models/Device');
 const PhoneVerification = require('../models/PhoneVerification');
 const TwilioService = require('../services/twilioService');
+const { sendPushToUserForNotification } = require('../services/pushNotificationService');
 const { generateToken } = require('../middleware/auth');
 
 const buildUserResponse = (user) => ({
@@ -533,7 +535,7 @@ const reviewVerificationRequest = asyncHandler(async (req, res) => {
 
   await user.save();
 
-  await Notification.create({
+  const verificationNotif = await Notification.create({
     recipient: user._id,
     type: 'verification_review',
     title: status === 'approved' ? 'Verification approved' : 'Verification rejected',
@@ -545,6 +547,9 @@ const reviewVerificationRequest = asyncHandler(async (req, res) => {
     relatedEntityId: user._id,
     navigationIdentifier: 'verification:details'
   });
+  sendPushToUserForNotification(user._id, verificationNotif, Device).catch((e) =>
+    console.warn('[FCM] verification_review push failed', e && e.message)
+  );
 
   res.status(200).json({
     status: 'success',
