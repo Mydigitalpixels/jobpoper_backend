@@ -31,7 +31,10 @@ app.use("/api/users", require("./routes/users"));
 app.use("/api/jobs", require("./routes/jobs"));
 app.use("/api/locations", require("./routes/locations"));
 app.use("/api/notifications", require("./routes/notifications"));
-app.use("/api/devices", require("./routes/devices"));
+const devicesRouter = require("./routes/devices");
+app.use("/api/devices", devicesRouter);
+// Same routes without /api prefix (client baseURL is .../api so /auth, /devices resolve to host:port/auth, host:port/devices)
+app.use("/devices", devicesRouter);
 app.use("/api/health", require("./routes/health"));
 
 // Basic route
