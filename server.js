@@ -31,6 +31,7 @@ app.use("/api/users", require("./routes/users"));
 app.use("/api/jobs", require("./routes/jobs"));
 app.use("/api/locations", require("./routes/locations"));
 app.use("/api/notifications", require("./routes/notifications"));
+app.use("/api/devices", require("./routes/devices"));
 app.use("/api/health", require("./routes/health"));
 
 // Basic route

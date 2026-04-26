@@ -4,6 +4,10 @@ const Job = require("../models/Job");
 const Location = require("../models/Location");
 const Notification = require("../models/Notification");
 const User = require("../models/User");
+const Device = require("../models/Device");
+const {
+  sendPushToUserForNotification,
+} = require("../services/pushNotificationService");
 
 /** Get job coordinates for distance calculations. OnSite: single location; Pickup: source. */
 const getJobCoordinates = (job) => {
@@ -201,6 +205,11 @@ const createJobCreatedNotifications = async (job, jobCreatorId) => {
       "job_created notifications for job:",
       job._id,
     );
+    for (const doc of result) {
+      sendPushToUserForNotification(doc.recipient, doc, Device).catch((e) =>
+        console.warn("[FCM] job_created push failed", e && e.message),
+      );
+    }
   } catch (error) {
     console.error("[NOTIFICATION] Error creating job notifications:", error);
     console.error("[NOTIFICATION] Error stack:", error.stack);
@@ -257,7 +266,7 @@ const showInterestInJob = asyncHandler(async (req, res) => {
       // Create notification for job owner about this interest
       // Note: We don't check for duplicates here because the function already prevents
       // duplicate interests, so this will only be called for new interests
-      await Notification.create({
+      const interestNotif = await Notification.create({
         recipient: job.postedBy,
         type: "job_interest",
         title: "New Interest in Your Job",
@@ -267,6 +276,9 @@ const showInterestInJob = asyncHandler(async (req, res) => {
         navigationIdentifier: `job:${job._id}`,
         isRead: false,
       });
+      sendPushToUserForNotification(interestNotif.recipient, interestNotif, Device).catch(
+        (e) => console.warn("[FCM] job_interest push failed", e && e.message),
+      );
     } catch (error) {
       // Log error but don't fail the interest recording
       console.error("Error creating interest notification:", error);
