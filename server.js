@@ -26,6 +26,8 @@ if (hasAdminBuild) {
 
 // Routes
 app.use("/api/auth", require("./routes/auth"));
+// Support legacy/non-API-prefixed auth routes (mobile clients may call /auth/*)
+app.use("/auth", require("./routes/auth"));
 app.use("/api/admin", require("./routes/admin"));
 app.use("/api/users", require("./routes/users"));
 app.use("/api/jobs", require("./routes/jobs"));
