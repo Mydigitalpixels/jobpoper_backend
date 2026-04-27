@@ -79,6 +79,33 @@ const userSchema = new mongoose.Schema({
       default: ''
     }
   },
+  vehiclePreference: {
+    vehicleType: {
+      type: String,
+      enum: ['2_wheeler', '3_wheeler', '4_wheeler'],
+      default: null
+    },
+    vehicleNumber: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      maxlength: [20, 'Vehicle number cannot be more than 20 characters'],
+      default: null
+    },
+    pricePerKm: {
+      type: Number,
+      min: [0, 'Price per km cannot be negative'],
+      default: null
+    },
+    isSet: {
+      type: Boolean,
+      default: false
+    },
+    updatedAt: {
+      type: Date,
+      default: null
+    }
+  },
   role: {
     type: String,
     enum: ['user', 'admin'],

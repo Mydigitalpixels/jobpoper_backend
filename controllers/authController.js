@@ -17,6 +17,7 @@ const buildUserResponse = (user) => ({
   isPhoneVerified: user.isPhoneVerified,
   profile: user.profile,
   verification: user.verification,
+  vehiclePreference: user.vehiclePreference,
   role: user.role,
   lastLogin: user.lastLogin
 });
@@ -779,6 +780,116 @@ const resetPin = asyncHandler(async (req, res) => {
   }
 });
 
+// @desc    Get current user's vehicle preference
+// @route   GET /api/auth/vehicle-preference
+// @access  Private
+const getVehiclePreference = asyncHandler(async (req, res) => {
+  const user = req.user;
+
+  res.status(200).json({
+    status: 'success',
+    message: 'Vehicle preference fetched successfully',
+    data: {
+      vehiclePreference: user.vehiclePreference || {
+        vehicleType: null,
+        vehicleNumber: null,
+        pricePerKm: null,
+        isSet: false,
+        updatedAt: null
+      }
+    }
+  });
+});
+
+// @desc    Create or update user's vehicle preference (Pickup/Delivery service)
+// @route   PUT /api/auth/vehicle-preference
+// @access  Private
+const updateVehiclePreference = asyncHandler(async (req, res) => {
+  const { vehicleType, vehicleNumber, pricePerKm } = req.body;
+  const user = req.user;
+
+  console.log('[VEHICLE_PREF] updateVehiclePreference called', {
+    userId: user?._id,
+    vehicleType,
+    vehicleNumber,
+    pricePerKm
+  });
+
+  // Validate vehicleType
+  const allowedTypes = ['2_wheeler', '3_wheeler', '4_wheeler'];
+  if (!vehicleType || !allowedTypes.includes(vehicleType)) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Vehicle type is required and must be one of: 2_wheeler, 3_wheeler, 4_wheeler'
+    });
+  }
+
+  // Validate vehicleNumber
+  if (!vehicleNumber || typeof vehicleNumber !== 'string' || !vehicleNumber.trim()) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Vehicle number is required'
+    });
+  }
+
+  const trimmedNumber = vehicleNumber.trim().toUpperCase();
+  if (trimmedNumber.length < 4 || trimmedNumber.length > 20) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Vehicle number must be between 4 and 20 characters'
+    });
+  }
+
+  // Validate pricePerKm
+  const numericPrice = Number(pricePerKm);
+  if (
+    pricePerKm === undefined ||
+    pricePerKm === null ||
+    pricePerKm === '' ||
+    Number.isNaN(numericPrice) ||
+    numericPrice < 0
+  ) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Price per km is required and must be a non-negative number'
+    });
+  }
+
+  try {
+    user.vehiclePreference = {
+      vehicleType,
+      vehicleNumber: trimmedNumber,
+      pricePerKm: numericPrice,
+      isSet: true,
+      updatedAt: new Date()
+    };
+
+    await user.save();
+
+    console.log('[VEHICLE_PREF] Successfully updated for user', user._id);
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Vehicle preference saved successfully',
+      data: {
+        vehiclePreference: user.vehiclePreference,
+        user: buildUserResponse(user)
+      }
+    });
+  } catch (error) {
+    console.error('[VEHICLE_PREF] Error updating vehicle preference', {
+      userId: user?._id,
+      error: error.message,
+      stack: error.stack
+    });
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to save vehicle preference',
+      error: error.message
+    });
+  }
+});
+
 // @desc    Delete user account and all related data
 // @route   DELETE /api/auth/delete-account
 // @access  Private
@@ -839,5 +950,7 @@ module.exports = {
   sendForgotPasswordOtp,
   verifyForgotPasswordOtp,
   resetPin,
-  deleteAccount
+  deleteAccount,
+  getVehiclePreference,
+  updateVehiclePreference
 };
