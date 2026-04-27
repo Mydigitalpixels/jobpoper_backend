@@ -108,6 +108,11 @@ const jobSchema = new mongoose.Schema({
       message: 'Cannot have more than 5 attachments'
     }
   },
+  distanceKm: {
+    type: Number,
+    min: [0, 'Distance cannot be negative'],
+    default: null
+  },
   status: {
     type: String,
     enum: ['open', 'completed', 'cancelled'],

@@ -9,6 +9,52 @@ const {
   sendPushToUserForNotification,
 } = require("../services/pushNotificationService");
 
+/** Compute haversine distance in kilometers between two lat/lng points. */
+const haversineKm = (lat1, lon1, lat2, lon2) => {
+  if (
+    typeof lat1 !== "number" ||
+    typeof lon1 !== "number" ||
+    typeof lat2 !== "number" ||
+    typeof lon2 !== "number"
+  ) {
+    return null;
+  }
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const R = 6371; // Earth radius in km
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) *
+      Math.cos(toRad(lat2)) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const distance = R * c;
+  return Math.round(distance * 100) / 100; // 2 decimal places
+};
+
+/** Compute distance for a Pickup job from its source/destination coordinates. */
+const computePickupDistance = (locationObj) => {
+  if (
+    !locationObj ||
+    !locationObj.source ||
+    !locationObj.destination ||
+    typeof locationObj.source.latitude !== "number" ||
+    typeof locationObj.source.longitude !== "number" ||
+    typeof locationObj.destination.latitude !== "number" ||
+    typeof locationObj.destination.longitude !== "number"
+  ) {
+    return null;
+  }
+  return haversineKm(
+    locationObj.source.latitude,
+    locationObj.source.longitude,
+    locationObj.destination.latitude,
+    locationObj.destination.longitude
+  );
+};
+
 /** Get job coordinates for distance calculations. OnSite: single location; Pickup: source. */
 const getJobCoordinates = (job) => {
   if (!job || !job.location) return null;
@@ -363,6 +409,7 @@ const createJob = asyncHandler(async (req, res) => {
     scheduledDate,
     scheduledTime,
     responsePreference,
+    distanceKm,
   } = req.body;
 
   // If location was sent as a JSON string (common with multipart/form-data), parse it.
@@ -438,6 +485,26 @@ const createJob = asyncHandler(async (req, res) => {
     );
   }
 
+  // Resolve distanceKm (only meaningful for Pickup jobs)
+  let resolvedDistanceKm = null;
+  if (jobType === "Pickup") {
+    const parsedClientDistance =
+      distanceKm !== undefined && distanceKm !== null && distanceKm !== ""
+        ? Number(distanceKm)
+        : null;
+
+    if (
+      parsedClientDistance !== null &&
+      !Number.isNaN(parsedClientDistance) &&
+      parsedClientDistance >= 0
+    ) {
+      resolvedDistanceKm = Math.round(parsedClientDistance * 100) / 100;
+    } else {
+      // Fallback: compute on the server from source/destination coordinates
+      resolvedDistanceKm = computePickupDistance(locationObj);
+    }
+  }
+
   try {
     const job = await Job.create({
       title,
@@ -451,6 +518,7 @@ const createJob = asyncHandler(async (req, res) => {
       responsePreference,
       attachments: uploadedAttachments,
       postedBy: req.user._id,
+      distanceKm: resolvedDistanceKm,
     });
 
     // Populate the postedBy field
@@ -1481,6 +1549,7 @@ const updateJob = asyncHandler(async (req, res) => {
     attachments,
     newAttachments,
     existingAttachments,
+    distanceKm,
   } = req.body;
 
   try {
@@ -1582,6 +1651,34 @@ const updateJob = asyncHandler(async (req, res) => {
         }
       }
       updateData.location = locationObj;
+    }
+
+    // Handle distanceKm (Pickup jobs only). Use the value from client if valid,
+    // otherwise compute from source/destination coordinates as a fallback.
+    const effectiveJobType =
+      updateData.jobType !== undefined ? updateData.jobType : job.jobType;
+    if (effectiveJobType === "Pickup") {
+      const parsedClientDistance =
+        distanceKm !== undefined && distanceKm !== null && distanceKm !== ""
+          ? Number(distanceKm)
+          : null;
+
+      if (
+        parsedClientDistance !== null &&
+        !Number.isNaN(parsedClientDistance) &&
+        parsedClientDistance >= 0
+      ) {
+        updateData.distanceKm = Math.round(parsedClientDistance * 100) / 100;
+      } else if (updateData.location) {
+        // Recompute from new location object if distance not provided
+        const computed = computePickupDistance(updateData.location);
+        if (computed !== null) {
+          updateData.distanceKm = computed;
+        }
+      }
+    } else if (effectiveJobType === "OnSite") {
+      // OnSite jobs don't have a meaningful pickup distance
+      updateData.distanceKm = null;
     }
 
     // Handle attachments: combine newAttachments (uploaded files) and existingAttachments
