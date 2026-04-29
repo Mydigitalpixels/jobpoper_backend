@@ -99,6 +99,11 @@ const jobSchema = new mongoose.Schema({
       message: 'Response preference must be one of: direct_contact, show_interest'
     }
   },
+  category: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'ServiceCategory',
+    default: null,
+  },
   attachments: {
     type: [String],
     validate: {

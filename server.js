@@ -33,6 +33,8 @@ app.use("/api/users", require("./routes/users"));
 app.use("/api/jobs", require("./routes/jobs"));
 app.use("/api/locations", require("./routes/locations"));
 app.use("/api/notifications", require("./routes/notifications"));
+app.use("/api/service-categories", require("./routes/serviceCategories"));
+app.use("/service-categories", require("./routes/serviceCategories"));
 const devicesRouter = require("./routes/devices");
 app.use("/api/devices", devicesRouter);
 // Same routes without /api prefix (client baseURL is .../api so /auth, /devices resolve to host:port/auth, host:port/devices)
@@ -79,6 +81,15 @@ const PORT = process.env.PORT || 3001;
 async function start() {
   try {
     await connectDB();
+
+    // Seed service categories on boot (idempotent — safe to run repeatedly).
+    try {
+      const { seedServiceCategories } = require("./services/seedServiceCategories");
+      await seedServiceCategories();
+    } catch (seedErr) {
+      console.error("[ServiceCategory] Seed step error:", seedErr.message);
+    }
+
     app.listen(PORT, () => {
       console.log(`🚀 Server is running on port ${PORT}`);
       console.log(`📊 Environment: ${process.env.NODE_ENV}`);

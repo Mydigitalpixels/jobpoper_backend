@@ -9,6 +9,23 @@ const {
   sendPushToUserForNotification,
 } = require("../services/pushNotificationService");
 
+/**
+ * Resolve a category query param (ObjectId hex string OR slug) to a Mongo ObjectId.
+ * Returns null if input is empty/falsy or if the category doesn't exist.
+ */
+const resolveCategoryFilter = async (rawCategory) => {
+  if (!rawCategory) return null;
+  const value = String(rawCategory).trim();
+  if (!value) return null;
+
+  const ServiceCategory = require("../models/ServiceCategory");
+  const isObjectId = /^[a-f\d]{24}$/i.test(value);
+  const doc = await ServiceCategory.findOne(
+    isObjectId ? { _id: value } : { slug: value.toLowerCase() }
+  ).select("_id");
+  return doc ? doc._id : null;
+};
+
 /** Compute haversine distance in kilometers between two lat/lng points. */
 const haversineKm = (lat1, lon1, lat2, lon2) => {
   if (
@@ -410,6 +427,7 @@ const createJob = asyncHandler(async (req, res) => {
     scheduledTime,
     responsePreference,
     distanceKm,
+    category,
   } = req.body;
 
   // If location was sent as a JSON string (common with multipart/form-data), parse it.
@@ -505,6 +523,29 @@ const createJob = asyncHandler(async (req, res) => {
     }
   }
 
+  // Resolve service category — accepts either a Mongo ObjectId or a slug
+  let categoryId = null;
+  if (category) {
+    const ServiceCategory = require("../models/ServiceCategory");
+    const isObjectId = /^[a-f\d]{24}$/i.test(String(category));
+    const categoryDoc = await ServiceCategory.findOne(
+      isObjectId ? { _id: category } : { slug: String(category).toLowerCase() }
+    );
+    if (!categoryDoc) {
+      return res.status(400).json({
+        status: "error",
+        message: "Selected service category does not exist",
+      });
+    }
+    if (!categoryDoc.isActive) {
+      return res.status(400).json({
+        status: "error",
+        message: "Selected service category is no longer available",
+      });
+    }
+    categoryId = categoryDoc._id;
+  }
+
   try {
     const job = await Job.create({
       title,
@@ -519,6 +560,7 @@ const createJob = asyncHandler(async (req, res) => {
       attachments: uploadedAttachments,
       postedBy: req.user._id,
       distanceKm: resolvedDistanceKm,
+      category: categoryId,
     });
 
     // Populate the postedBy field
@@ -526,6 +568,8 @@ const createJob = asyncHandler(async (req, res) => {
       "postedBy",
       "phoneNumber profile.fullName profile.email",
     );
+    // Populate category for the response so the client can display it immediately
+    await job.populate("category", "_id name slug icon");
 
     // Create notifications for users in the same location (async, don't wait)
     createJobCreatedNotifications(job, req.user._id).catch((err) => {
@@ -854,6 +898,11 @@ const getHotJobs = asyncHandler(async (req, res) => {
     if (req.user) {
       initialMatch.postedBy = { $ne: new mongoose.Types.ObjectId(req.user._id) };
     }
+    // Optional category filter (?category=<idOrSlug>)
+    const hotCategoryId = await resolveCategoryFilter(params.category);
+    if (hotCategoryId) {
+      initialMatch.category = hotCategoryId;
+    }
 
     let pipeline = [
       {
@@ -1069,6 +1118,11 @@ const searchHotJobs = asyncHandler(async (req, res) => {
     if (req.user) {
       initialMatch.postedBy = { $ne: new mongoose.Types.ObjectId(req.user._id) };
     }
+    // Optional category filter
+    const searchHotCategoryId = await resolveCategoryFilter(params.category);
+    if (searchHotCategoryId) {
+      initialMatch.category = searchHotCategoryId;
+    }
 
     let pipeline = [
       {
@@ -1201,6 +1255,11 @@ const getNormalJobs = asyncHandler(async (req, res) => {
     if (req.user) {
       initialMatch.postedBy = { $ne: new mongoose.Types.ObjectId(req.user._id) };
     }
+    // Optional category filter
+    const normalCategoryId = await resolveCategoryFilter(params.category);
+    if (normalCategoryId) {
+      initialMatch.category = normalCategoryId;
+    }
 
     let pipeline = [
       {
@@ -1212,7 +1271,7 @@ const getNormalJobs = asyncHandler(async (req, res) => {
     // Add distance filter (coordinates are now guaranteed by validation)
     const userLat = parseFloat(latitude);
     const userLng = parseFloat(longitude);
-    
+
     pipeline = [
         ...pipeline,
         ...getDistancePipeline(userLat, userLng),
@@ -1340,6 +1399,11 @@ const searchNormalJobs = asyncHandler(async (req, res) => {
     if (req.user) {
       initialMatch.postedBy = { $ne: new mongoose.Types.ObjectId(req.user._id) };
     }
+    // Optional category filter
+    const searchNormalCategoryId = await resolveCategoryFilter(params.category);
+    if (searchNormalCategoryId) {
+      initialMatch.category = searchNormalCategoryId;
+    }
 
     let pipeline = [
       {
@@ -1456,7 +1520,8 @@ const getJobById = asyncHandler(async (req, res) => {
       .populate(
         "interestedUsers.user",
         "profile.fullName profile.email phoneNumber profile.profileImage",
-      );
+      )
+      .populate("category", "_id name slug icon");
 
     if (!job) {
       return res.status(404).json({
@@ -1550,6 +1615,7 @@ const updateJob = asyncHandler(async (req, res) => {
     newAttachments,
     existingAttachments,
     distanceKm,
+    category,
   } = req.body;
 
   try {
@@ -1651,6 +1717,32 @@ const updateJob = asyncHandler(async (req, res) => {
         }
       }
       updateData.location = locationObj;
+    }
+
+    // Handle service category — accept ObjectId or slug. Empty string clears it.
+    if (category !== undefined) {
+      if (category === null || category === "") {
+        updateData.category = null;
+      } else {
+        const ServiceCategory = require("../models/ServiceCategory");
+        const isObjectId = /^[a-f\d]{24}$/i.test(String(category));
+        const categoryDoc = await ServiceCategory.findOne(
+          isObjectId ? { _id: category } : { slug: String(category).toLowerCase() }
+        );
+        if (!categoryDoc) {
+          return res.status(400).json({
+            status: "error",
+            message: "Selected service category does not exist",
+          });
+        }
+        if (!categoryDoc.isActive) {
+          return res.status(400).json({
+            status: "error",
+            message: "Selected service category is no longer available",
+          });
+        }
+        updateData.category = categoryDoc._id;
+      }
     }
 
     // Handle distanceKm (Pickup jobs only). Use the value from client if valid,
@@ -1759,6 +1851,7 @@ const updateJob = asyncHandler(async (req, res) => {
       "postedBy",
       "phoneNumber profile.fullName profile.email",
     );
+    await updatedJob.populate("category", "_id name slug icon");
 
     res.status(200).json({
       status: "success",
