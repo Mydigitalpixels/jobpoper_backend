@@ -1,5 +1,7 @@
 const asyncHandler = require('express-async-handler');
 const mongoose = require('mongoose');
+const path = require('path');
+const fs = require('fs');
 const BusinessProfile = require('../models/BusinessProfile');
 const BusinessImage = require('../models/BusinessImage');
 
@@ -7,12 +9,44 @@ const MAX_PROFILES_PER_USER = 3;
 const MAX_IMAGES = 5;
 
 const buildImageUrl = (filename) => `/uploads/business-profiles/${filename}`;
+const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const deleteBusinessImageFiles = async (images = []) => {
+  await Promise.all(
+    images.map(async (image) => {
+      try {
+        const fileName = path.basename(image.url || '');
+        if (!fileName) return;
+        const filePath = path.join(
+          __dirname,
+          '..',
+          'uploads',
+          'business-profiles',
+          fileName
+        );
+        await fs.promises.unlink(filePath);
+      } catch (err) {
+        if (err.code !== 'ENOENT') {
+          console.warn('[BusinessProfile] failed to delete image file:', err.message);
+        }
+      }
+    })
+  );
+};
 
 // @desc    Create a new business profile (status starts as "pending")
 // @route   POST /api/business-profiles
 // @access  Private
 const createBusinessProfile = asyncHandler(async (req, res) => {
   const userId = req.user._id;
+
+  if (!req.user.isVerified) {
+    return res.status(403).json({
+      status: 'error',
+      code: 'USER_NOT_VERIFIED',
+      message: 'Only verified users can create business profiles',
+    });
+  }
 
   // Hard guard: max 3 profiles per user. The Mongoose pre-save hook also
   // catches this, but checking here gives a clean 409 response without
@@ -129,7 +163,7 @@ const createBusinessProfile = asyncHandler(async (req, res) => {
 });
 
 // @desc    Public, paginated list of approved business profiles
-// @route   GET /api/business-profiles?page=1&limit=10
+// @route   GET /api/business-profiles?page=1&limit=10&search=shop&category=<id>
 // @access  Private (any authenticated user)
 //
 // Powers the user-facing "Business" tab. Only returns profiles whose
@@ -145,7 +179,23 @@ const listApprovedBusinessProfiles = asyncHandler(async (req, res) => {
   const limit = Math.max(1, Math.min(limitRaw, MAX_LIMIT));
   const skip = (page - 1) * limit;
 
+  const search = String(req.query.search || '').trim();
+  const category = String(req.query.category || '').trim();
+
+  if (category && !mongoose.isValidObjectId(category)) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Invalid business category id',
+    });
+  }
+
   const filter = { status: 'approved', isActive: true };
+  if (search) {
+    filter.businessName = { $regex: escapeRegex(search), $options: 'i' };
+  }
+  if (category) {
+    filter.category = category;
+  }
 
   const [profiles, total] = await Promise.all([
     BusinessProfile.find(filter)
@@ -320,9 +370,58 @@ const updateBusinessProfile = asyncHandler(async (req, res) => {
   });
 });
 
+// @desc    Delete an approved or rejected business profile
+// @route   DELETE /api/business-profiles/:id
+// @access  Private
+const deleteBusinessProfile = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const { id } = req.params;
+
+  if (!mongoose.isValidObjectId(id)) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Invalid business profile id',
+    });
+  }
+
+  const profile = await BusinessProfile.findOne({ _id: id, user: userId })
+    .populate('images');
+
+  if (!profile) {
+    return res.status(404).json({
+      status: 'error',
+      message: 'Business profile not found',
+    });
+  }
+
+  if (profile.status === 'pending') {
+    return res.status(409).json({
+      status: 'error',
+      code: 'PROFILE_PENDING_REVIEW',
+      message: 'You cannot delete a profile that is pending review',
+    });
+  }
+
+  const images = Array.isArray(profile.images) ? profile.images : [];
+  const imageIds = images.map((image) => image._id);
+
+  await BusinessProfile.deleteOne({ _id: profile._id });
+  if (imageIds.length) {
+    await BusinessImage.deleteMany({ _id: { $in: imageIds } });
+    await deleteBusinessImageFiles(images);
+  }
+
+  return res.status(200).json({
+    status: 'success',
+    message: 'Business profile deleted successfully',
+    data: { deletedId: profile._id },
+  });
+});
+
 module.exports = {
   createBusinessProfile,
   getMyBusinessProfiles,
   updateBusinessProfile,
+  deleteBusinessProfile,
   listApprovedBusinessProfiles,
 };

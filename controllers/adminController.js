@@ -1,6 +1,7 @@
 const asyncHandler = require("express-async-handler");
 const User = require("../models/User");
 const Job = require("../models/Job");
+const BusinessProfile = require("../models/BusinessProfile");
 const Notification = require("../models/Notification");
 const Device = require("../models/Device");
 const { generateToken } = require("../middleware/auth");
@@ -69,6 +70,39 @@ const buildAdminJobDetail = (job) => ({
   updatedAt: job.updatedAt,
 });
 
+const buildAdminBusinessProfile = (profile) => ({
+  id: profile._id,
+  businessName: profile.businessName,
+  category:
+    profile.category && typeof profile.category === "object"
+      ? {
+          id: profile.category._id,
+          name: profile.category.name || "",
+          slug: profile.category.slug || "",
+        }
+      : profile.category || null,
+  address: profile.address,
+  phoneNumber: profile.phoneNumber,
+  status: profile.status,
+  rejectionReason: profile.rejectionReason || null,
+  submittedAt: profile.createdAt,
+  createdAt: profile.createdAt,
+  updatedAt: profile.updatedAt,
+  user: {
+    id: profile.user?._id || null,
+    phoneNumber: profile.user?.phoneNumber || "",
+    fullName: profile.user?.profile?.fullName || "",
+  },
+  images: Array.isArray(profile.images)
+    ? profile.images.map((image) => ({
+        id: image._id,
+        url: image.url,
+        isPrimary: !!image.isPrimary,
+        uploadedAt: image.uploadedAt || image.createdAt || null,
+      }))
+    : [],
+});
+
 // @desc    Get admin dashboard summary
 // @route   GET /api/admin/dashboard
 // @access  Private/Admin
@@ -79,6 +113,7 @@ const getDashboardSummary = asyncHandler(async (req, res) => {
     activeJobs,
     verifiedUsers,
     pendingVerificationRequests,
+    pendingBusinessApprovalRequests,
     recentUsers,
     recentJobs,
   ] = await Promise.all([
@@ -87,6 +122,7 @@ const getDashboardSummary = asyncHandler(async (req, res) => {
     Job.countDocuments({ isActive: true, status: "open" }),
     User.countDocuments({ isVerified: true }),
     User.countDocuments({ "verification.status": "under_review" }),
+    BusinessProfile.countDocuments({ status: "pending" }),
     User.find()
       .sort({ createdAt: -1 })
       .limit(5)
@@ -111,6 +147,7 @@ const getDashboardSummary = asyncHandler(async (req, res) => {
         activeJobs,
         verifiedUsers,
         pendingVerificationRequests,
+        pendingBusinessApprovalRequests,
       },
       recentUsers: recentUsers.map(buildAdminUser),
       recentJobs: recentJobs.map(buildAdminJob),
@@ -317,6 +354,104 @@ const getVerificationRequests = asyncHandler(async (req, res) => {
   });
 });
 
+// @desc    Get pending business profile approval requests
+// @route   GET /api/admin/business-profiles/pending
+// @access  Private/Admin
+const getPendingBusinessProfileRequests = asyncHandler(async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit, 10) || 100, 200);
+
+  const profiles = await BusinessProfile.find({ status: "pending" })
+    .sort({ createdAt: -1 })
+    .limit(limit)
+    .populate("user", "phoneNumber profile.fullName")
+    .populate("category", "name slug")
+    .populate("images")
+    .select("businessName category address phoneNumber status rejectionReason user images createdAt updatedAt");
+
+  res.status(200).json({
+    status: "success",
+    data: {
+      requests: profiles.map(buildAdminBusinessProfile),
+      total: profiles.length,
+    },
+  });
+});
+
+// @desc    Review a business profile approval request
+// @route   PUT /api/admin/business-profiles/:profileId/review
+// @access  Private/Admin
+const reviewBusinessProfileRequest = asyncHandler(async (req, res) => {
+  const { profileId } = req.params;
+  const { status, rejectionReason = "" } = req.body;
+
+  if (!["approved", "rejected"].includes(status)) {
+    return res.status(400).json({
+      status: "error",
+      message: "Status must be either 'approved' or 'rejected'",
+    });
+  }
+
+  const trimmedReason = String(rejectionReason || "").trim();
+  if (status === "rejected" && !trimmedReason) {
+    return res.status(400).json({
+      status: "error",
+      message: "Rejection reason is required",
+    });
+  }
+
+  const profile = await BusinessProfile.findById(profileId);
+  if (!profile) {
+    return res.status(404).json({
+      status: "error",
+      message: "Business profile not found",
+    });
+  }
+
+  profile.status = status;
+  profile.rejectionReason = status === "rejected" ? trimmedReason : null;
+  await profile.save();
+
+  try {
+    await Notification.create({
+      recipient: profile.user,
+      type: "business_profile_review",
+      title:
+        status === "approved"
+          ? "Business profile approved"
+          : "Business profile rejected",
+      message:
+        status === "approved"
+          ? `Your business profile ${profile.businessName} has been approved`
+          : `Your business profile ${profile.businessName} has been rejected because: ${trimmedReason}`,
+      relatedEntityType: "BusinessProfile",
+      relatedEntityId: profile._id,
+      navigationIdentifier: `business-profile:${profile._id}`,
+      isRead: false,
+    });
+  } catch (notificationErr) {
+    console.error(
+      "[BusinessProfile] failed to create review notification:",
+      notificationErr.message,
+    );
+  }
+
+  const populated = await BusinessProfile.findById(profile._id)
+    .populate("user", "phoneNumber profile.fullName")
+    .populate("category", "name slug")
+    .populate("images");
+
+  res.status(200).json({
+    status: "success",
+    message:
+      status === "approved"
+        ? "Business profile approved successfully"
+        : "Business profile rejected successfully",
+    data: {
+      profile: buildAdminBusinessProfile(populated),
+    },
+  });
+});
+
 // @desc    Review verification request
 // @route   PUT /api/admin/verifications/:userId/review
 // @access  Private/Admin
@@ -391,6 +526,8 @@ module.exports = {
   getAdminUserById,
   getAdminJobs,
   getAdminJobById,
+  getPendingBusinessProfileRequests,
+  reviewBusinessProfileRequest,
   getVerificationRequests,
   reviewVerificationRequest,
 };

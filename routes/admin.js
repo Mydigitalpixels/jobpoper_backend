@@ -8,6 +8,8 @@ const {
   getAdminUserById,
   getAdminJobs,
   getAdminJobById,
+  getPendingBusinessProfileRequests,
+  reviewBusinessProfileRequest,
   getVerificationRequests,
   reviewVerificationRequest,
 } = require("../controllers/adminController");
@@ -23,6 +25,8 @@ router.get("/users", getAdminUsers);
 router.get("/users/:userId", getAdminUserById);
 router.get("/jobs", getAdminJobs);
 router.get("/jobs/:jobId", getAdminJobById);
+router.get("/business-profiles/pending", getPendingBusinessProfileRequests);
+router.put("/business-profiles/:profileId/review", reviewBusinessProfileRequest);
 router.get("/verifications", getVerificationRequests);
 router.put("/verifications/:userId/review", reviewVerificationRequest);
 

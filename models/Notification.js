@@ -11,8 +11,8 @@ const notificationSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Notification type is required'],
     enum: {
-      values: ['job_created', 'job_interest', 'verification_review'],
-      message: 'Notification type must be one of: job_created, job_interest, verification_review'
+      values: ['job_created', 'job_interest', 'verification_review', 'business_profile_review'],
+      message: 'Notification type must be one of: job_created, job_interest, verification_review, business_profile_review'
     },
     index: true
   },
@@ -32,8 +32,8 @@ const notificationSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Related entity type is required'],
     enum: {
-      values: ['Job', 'User'],
-      message: 'Related entity type must be: Job or User'
+      values: ['Job', 'User', 'BusinessProfile'],
+      message: 'Related entity type must be: Job, User, or BusinessProfile'
     }
   },
   relatedEntityId: {

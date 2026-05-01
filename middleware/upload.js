@@ -4,6 +4,14 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 
+const ALLOWED_IMAGE_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/heic',
+  'image/heif',
+]);
+
 // Ensure directory exists
 function ensureDir(dirPath) {
   if (!fs.existsSync(dirPath)) {
@@ -17,10 +25,10 @@ function generateFileName(prefix = 'img') {
 }
 
 const imageOnlyFilter = (req, file, cb) => {
-  if (file.mimetype && file.mimetype.startsWith('image/')) {
+  if (file.mimetype && ALLOWED_IMAGE_MIME_TYPES.has(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error('Only image uploads are allowed'), false);
+    cb(new Error('Only JPG, PNG, WEBP, HEIC, and HEIF image uploads are allowed'), false);
   }
 };
 
@@ -38,7 +46,9 @@ const uploadWithoutFormatRestriction = multer({
 async function processAndSave(buffer, destDir, filename) {
   ensureDir(destDir);
   const fullPath = path.join(destDir, filename);
-  await sharp(buffer)
+  const image = sharp(buffer, { failOn: 'warning' });
+  await image.metadata();
+  await image
     .rotate()
     .resize({ width: 1600, withoutEnlargement: true })
     .webp({ quality: 80 })
@@ -137,28 +147,17 @@ const uploadBusinessImages = [
       const destDir = path.join(__dirname, '..', 'uploads', 'business-profiles');
       const saved = [];
       for (const file of req.files) {
-        let filename = generateFileName('business');
-        let success = false;
-        let fallbackPath = null;
+        const filename = generateFileName('business');
         try {
           await processAndSave(file.buffer, destDir, filename);
-          success = true;
         } catch (err) {
-          try {
-            filename = saveOriginalFile(
-              file.buffer,
-              destDir,
-              filename,
-              file.originalname,
-            );
-            fallbackPath = path.join(destDir, filename);
-            success = true;
-          } catch (fallbackErr) {
-            try { if (fallbackPath) fs.unlinkSync(fallbackPath); } catch (e) {}
-            console.warn('Failed to save business image:', fallbackErr.message);
-          }
+          console.warn('Failed to process business image:', err.message);
+          return res.status(400).json({
+            status: 'error',
+            message: 'One or more business images are invalid or unsupported',
+          });
         }
-        if (success) saved.push(filename);
+        saved.push(filename);
       }
       req.processedFileNames = saved;
       if (req.files.length && !saved.length) {

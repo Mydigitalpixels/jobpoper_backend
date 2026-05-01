@@ -63,7 +63,23 @@ if (hasAdminBuild) {
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
+  if (err.name === "MulterError") {
+    const isFileSize = err.code === "LIMIT_FILE_SIZE";
+    return res.status(400).json({
+      status: "error",
+      message: isFileSize
+        ? "Uploaded file is too large. Maximum size is 8MB."
+        : err.message,
+    });
+  }
+  if (/Only .*image uploads are allowed/i.test(err.message || "")) {
+    return res.status(400).json({
+      status: "error",
+      message: err.message,
+    });
+  }
   res.status(500).json({
+    status: "error",
     message: "Something went wrong!",
     error:
       process.env.NODE_ENV === "development"

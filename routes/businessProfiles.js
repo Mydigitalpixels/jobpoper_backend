@@ -6,6 +6,7 @@ const {
   createBusinessProfile,
   getMyBusinessProfiles,
   updateBusinessProfile,
+  deleteBusinessProfile,
   listApprovedBusinessProfiles,
 } = require('../controllers/businessProfileController');
 
@@ -14,5 +15,6 @@ router.get('/me', protect, getMyBusinessProfiles);
 router.get('/', protect, listApprovedBusinessProfiles);
 router.post('/', protect, ...uploadBusinessImages, createBusinessProfile);
 router.put('/:id', protect, ...uploadBusinessImages, updateBusinessProfile);
+router.delete('/:id', protect, deleteBusinessProfile);
 
 module.exports = router;
