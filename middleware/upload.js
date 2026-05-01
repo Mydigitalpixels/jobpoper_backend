@@ -125,6 +125,53 @@ const uploadJobImages = [
   }
 ];
 
+// Business profile images: up to 5 files under uploads/business-profiles
+const uploadBusinessImages = [
+  upload.array('images', 5),
+  async (req, res, next) => {
+    try {
+      if (!req.files || !req.files.length) {
+        req.processedFileNames = [];
+        return next();
+      }
+      const destDir = path.join(__dirname, '..', 'uploads', 'business-profiles');
+      const saved = [];
+      for (const file of req.files) {
+        let filename = generateFileName('business');
+        let success = false;
+        let fallbackPath = null;
+        try {
+          await processAndSave(file.buffer, destDir, filename);
+          success = true;
+        } catch (err) {
+          try {
+            filename = saveOriginalFile(
+              file.buffer,
+              destDir,
+              filename,
+              file.originalname,
+            );
+            fallbackPath = path.join(destDir, filename);
+            success = true;
+          } catch (fallbackErr) {
+            try { if (fallbackPath) fs.unlinkSync(fallbackPath); } catch (e) {}
+            console.warn('Failed to save business image:', fallbackErr.message);
+          }
+        }
+        if (success) saved.push(filename);
+      }
+      req.processedFileNames = saved;
+      if (req.files.length && !saved.length) {
+        return res.status(400).json({ status: 'error', message: 'All images failed to process' });
+      }
+      return next();
+    } catch (err) {
+      req.processedFileNames = [];
+      return next(err);
+    }
+  }
+];
+
 // Verification documents: selfie + photo ID
 const uploadVerificationDocuments = [
   uploadWithoutFormatRestriction.fields([
@@ -184,5 +231,6 @@ const uploadVerificationDocuments = [
 module.exports = {
   uploadProfileImage,
   uploadJobImages,
-  uploadVerificationDocuments
+  uploadVerificationDocuments,
+  uploadBusinessImages
 };

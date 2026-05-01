@@ -35,6 +35,10 @@ app.use("/api/locations", require("./routes/locations"));
 app.use("/api/notifications", require("./routes/notifications"));
 app.use("/api/service-categories", require("./routes/serviceCategories"));
 app.use("/service-categories", require("./routes/serviceCategories"));
+app.use("/api/business-categories", require("./routes/businessCategories"));
+app.use("/business-categories", require("./routes/businessCategories"));
+app.use("/api/business-profiles", require("./routes/businessProfiles"));
+app.use("/business-profiles", require("./routes/businessProfiles"));
 const devicesRouter = require("./routes/devices");
 app.use("/api/devices", devicesRouter);
 // Same routes without /api prefix (client baseURL is .../api so /auth, /devices resolve to host:port/auth, host:port/devices)
@@ -88,6 +92,14 @@ async function start() {
       await seedServiceCategories();
     } catch (seedErr) {
       console.error("[ServiceCategory] Seed step error:", seedErr.message);
+    }
+
+    // Seed business categories on boot (idempotent — safe to run repeatedly).
+    try {
+      const { seedBusinessCategories } = require("./services/seedBusinessCategories");
+      await seedBusinessCategories();
+    } catch (seedErr) {
+      console.error("[BusinessCategory] Seed step error:", seedErr.message);
     }
 
     app.listen(PORT, () => {

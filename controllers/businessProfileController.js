@@ -1,0 +1,328 @@
+const asyncHandler = require('express-async-handler');
+const mongoose = require('mongoose');
+const BusinessProfile = require('../models/BusinessProfile');
+const BusinessImage = require('../models/BusinessImage');
+
+const MAX_PROFILES_PER_USER = 3;
+const MAX_IMAGES = 5;
+
+const buildImageUrl = (filename) => `/uploads/business-profiles/${filename}`;
+
+// @desc    Create a new business profile (status starts as "pending")
+// @route   POST /api/business-profiles
+// @access  Private
+const createBusinessProfile = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+
+  // Hard guard: max 3 profiles per user. The Mongoose pre-save hook also
+  // catches this, but checking here gives a clean 409 response without
+  // wasting the uploaded files.
+  const existingCount = await BusinessProfile.countDocuments({ user: userId });
+  if (existingCount >= MAX_PROFILES_PER_USER) {
+    return res.status(409).json({
+      status: 'error',
+      code: 'PROFILE_LIMIT_REACHED',
+      message: `A user can have at most ${MAX_PROFILES_PER_USER} business profiles`,
+    });
+  }
+
+  const {
+    businessName,
+    category,
+    address,
+    phoneNumber,
+    primaryIndex,
+  } = req.body;
+
+  if (!businessName || !category || !address || !phoneNumber) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'businessName, category, address, and phoneNumber are required',
+    });
+  }
+
+  const fileNames = req.processedFileNames || [];
+  if (fileNames.length < 1) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'At least 1 image is required',
+    });
+  }
+  if (fileNames.length > MAX_IMAGES) {
+    return res.status(400).json({
+      status: 'error',
+      message: `Cannot upload more than ${MAX_IMAGES} images`,
+    });
+  }
+
+  const primaryIdx = Math.max(
+    0,
+    Math.min(parseInt(primaryIndex, 10) || 0, fileNames.length - 1)
+  );
+
+  // Two-step insert with manual rollback so we don't depend on transactions
+  // (transactions require a replica set, which dev / standalone setups skip).
+  let profile;
+  let imageDocs = [];
+  try {
+    // 1) Create the profile shell with a placeholder image array. We use
+    //    a freshly minted ObjectId so `images` validation (>=1) passes,
+    //    then replace with real refs once images are saved.
+    const placeholderId = new mongoose.Types.ObjectId();
+    profile = await BusinessProfile.create({
+      user: userId,
+      businessName: String(businessName).trim(),
+      category,
+      address: String(address).trim(),
+      phoneNumber: String(phoneNumber).trim(),
+      status: 'pending',
+      isActive: true,
+      images: [placeholderId],
+    });
+
+    // 2) Insert the real BusinessImage docs pointing back to the profile.
+    imageDocs = await BusinessImage.insertMany(
+      fileNames.map((name, idx) => ({
+        businessProfile: profile._id,
+        url: buildImageUrl(name),
+        isPrimary: idx === primaryIdx,
+      }))
+    );
+
+    // 3) Swap the placeholder for the actual image refs and save.
+    profile.images = imageDocs.map((doc) => doc._id);
+    await profile.save();
+  } catch (err) {
+    // Best-effort rollback so we don't leave orphans.
+    try {
+      if (imageDocs.length) {
+        await BusinessImage.deleteMany({
+          _id: { $in: imageDocs.map((d) => d._id) },
+        });
+      }
+      if (profile?._id) {
+        await BusinessProfile.deleteOne({ _id: profile._id });
+      }
+    } catch (rollbackErr) {
+      console.error('[BusinessProfile] rollback failed:', rollbackErr.message);
+    }
+
+    if (err?.message?.includes('at most 3 business profiles')) {
+      return res.status(409).json({
+        status: 'error',
+        code: 'PROFILE_LIMIT_REACHED',
+        message: err.message,
+      });
+    }
+    throw err;
+  }
+
+  const populated = await BusinessProfile.findById(profile._id)
+    .populate('category', 'name slug')
+    .populate('images');
+
+  return res.status(201).json({
+    status: 'success',
+    message: 'Business profile created and submitted for review',
+    data: { profile: populated },
+  });
+});
+
+// @desc    Public, paginated list of approved business profiles
+// @route   GET /api/business-profiles?page=1&limit=10
+// @access  Private (any authenticated user)
+//
+// Powers the user-facing "Business" tab. Only returns profiles whose
+// status is "approved" and that are still active. Default page size is
+// 10 to match the tab's UI; the cap is 50 so misbehaving clients can't
+// pull the whole table at once.
+const listApprovedBusinessProfiles = asyncHandler(async (req, res) => {
+  const DEFAULT_LIMIT = 10;
+  const MAX_LIMIT = 50;
+
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const limitRaw = parseInt(req.query.limit, 10) || DEFAULT_LIMIT;
+  const limit = Math.max(1, Math.min(limitRaw, MAX_LIMIT));
+  const skip = (page - 1) * limit;
+
+  const filter = { status: 'approved', isActive: true };
+
+  const [profiles, total] = await Promise.all([
+    BusinessProfile.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate('category', 'name slug')
+      .populate('images'),
+    BusinessProfile.countDocuments(filter),
+  ]);
+
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+
+  return res.status(200).json({
+    status: 'success',
+    data: {
+      profiles,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+    },
+  });
+});
+
+// @desc    Get the authenticated user's business profiles
+// @route   GET /api/business-profiles/me
+// @access  Private
+const getMyBusinessProfiles = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const profiles = await BusinessProfile.find({ user: userId })
+    .sort({ createdAt: -1 })
+    .populate('category', 'name slug')
+    .populate('images');
+
+  return res.status(200).json({
+    status: 'success',
+    data: {
+      profiles,
+      total: profiles.length,
+      remainingSlots: Math.max(0, MAX_PROFILES_PER_USER - profiles.length),
+      maxProfiles: MAX_PROFILES_PER_USER,
+    },
+  });
+});
+
+// @desc    Update an existing business profile (edit + resubmit)
+// @route   PUT /api/business-profiles/:id
+// @access  Private
+//
+// The edit-and-resubmit flow:
+//   - Approved or rejected profiles can be edited; pending profiles cannot
+//     (they are awaiting admin review and edits would invalidate that work).
+//   - Any successful edit flips status back to "pending" so the admin can
+//     re-review the new content. rejectionReason is cleared by the model's
+//     pre-save hook whenever status !== "rejected".
+//   - Images are optional on update. If new image files are uploaded we
+//     replace the entire image set (mirroring the create flow). Otherwise
+//     the existing images are kept untouched.
+const updateBusinessProfile = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const { id } = req.params;
+
+  if (!mongoose.isValidObjectId(id)) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Invalid business profile id',
+    });
+  }
+
+  const profile = await BusinessProfile.findOne({ _id: id, user: userId });
+  if (!profile) {
+    return res.status(404).json({
+      status: 'error',
+      message: 'Business profile not found',
+    });
+  }
+
+  // Pending profiles are locked while admin review is in flight.
+  if (profile.status === 'pending') {
+    return res.status(409).json({
+      status: 'error',
+      code: 'PROFILE_PENDING_REVIEW',
+      message: 'You cannot edit a profile that is pending review',
+    });
+  }
+
+  const { businessName, category, address, phoneNumber, primaryIndex } =
+    req.body;
+
+  if (businessName != null) profile.businessName = String(businessName).trim();
+  if (category != null) profile.category = category;
+  if (address != null) profile.address = String(address).trim();
+  if (phoneNumber != null) profile.phoneNumber = String(phoneNumber).trim();
+
+  // Replace images only if the client sent new ones on this request.
+  const newFileNames = req.processedFileNames || [];
+  let newImageDocs = [];
+  let oldImageIds = [];
+
+  if (newFileNames.length > 0) {
+    if (newFileNames.length > MAX_IMAGES) {
+      return res.status(400).json({
+        status: 'error',
+        message: `Cannot upload more than ${MAX_IMAGES} images`,
+      });
+    }
+
+    const primaryIdx = Math.max(
+      0,
+      Math.min(parseInt(primaryIndex, 10) || 0, newFileNames.length - 1)
+    );
+
+    try {
+      newImageDocs = await BusinessImage.insertMany(
+        newFileNames.map((name, idx) => ({
+          businessProfile: profile._id,
+          url: buildImageUrl(name),
+          isPrimary: idx === primaryIdx,
+        }))
+      );
+      oldImageIds = [...profile.images];
+      profile.images = newImageDocs.map((doc) => doc._id);
+    } catch (err) {
+      // Rollback any partially-inserted new images.
+      try {
+        if (newImageDocs.length) {
+          await BusinessImage.deleteMany({
+            _id: { $in: newImageDocs.map((d) => d._id) },
+          });
+        }
+      } catch (rollbackErr) {
+        console.error(
+          '[BusinessProfile] update rollback failed:',
+          rollbackErr.message
+        );
+      }
+      throw err;
+    }
+  }
+
+  // Edit-and-resubmit: any successful edit moves the profile back to
+  // pending. The pre-save hook clears rejectionReason for us.
+  profile.status = 'pending';
+
+  await profile.save();
+
+  // Now that the save succeeded, garbage-collect the previous image rows.
+  if (oldImageIds.length) {
+    try {
+      await BusinessImage.deleteMany({ _id: { $in: oldImageIds } });
+    } catch (cleanupErr) {
+      console.warn(
+        '[BusinessProfile] failed to delete replaced images:',
+        cleanupErr.message
+      );
+    }
+  }
+
+  const populated = await BusinessProfile.findById(profile._id)
+    .populate('category', 'name slug')
+    .populate('images');
+
+  return res.status(200).json({
+    status: 'success',
+    message: 'Business profile updated and resubmitted for review',
+    data: { profile: populated },
+  });
+});
+
+module.exports = {
+  createBusinessProfile,
+  getMyBusinessProfiles,
+  updateBusinessProfile,
+  listApprovedBusinessProfiles,
+};
