@@ -383,6 +383,7 @@ const getMyInterestedJobs = asyncHandler(async (req, res) => {
 
     const jobs = await Job.find(filter)
       .populate("postedBy", "phoneNumber profile.fullName profile.email")
+      .populate("category", "_id name slug icon")
       .sort(sort)
       .skip(skip)
       .limit(limit);
@@ -665,6 +666,7 @@ const getAllJobs = asyncHandler(async (req, res) => {
       {
         $unwind: "$postedByUser",
       },
+      ...getCategoryLookupPipeline(),
       {
         $addFields: {
           postedBy: {
@@ -720,6 +722,43 @@ const getAllJobs = asyncHandler(async (req, res) => {
     });
   }
 });
+
+// Helper: aggregation stages that join the job's `category` ObjectId with the
+// `servicecategories` collection and replace `category` with a small embedded
+// object {_id, name, slug, icon}, or null when the job has no category.
+// Lets list endpoints return category info inline so the frontend can render
+// it without a second round-trip.
+const getCategoryLookupPipeline = () => [
+  {
+    $lookup: {
+      from: 'servicecategories',
+      localField: 'category',
+      foreignField: '_id',
+      as: 'categoryDoc',
+    },
+  },
+  {
+    $addFields: {
+      category: {
+        $cond: [
+          { $gt: [{ $size: '$categoryDoc' }, 0] },
+          {
+            _id: { $arrayElemAt: ['$categoryDoc._id', 0] },
+            name: { $arrayElemAt: ['$categoryDoc.name', 0] },
+            slug: { $arrayElemAt: ['$categoryDoc.slug', 0] },
+            icon: { $arrayElemAt: ['$categoryDoc.icon', 0] },
+          },
+          null,
+        ],
+      },
+    },
+  },
+  {
+    $project: {
+      categoryDoc: 0,
+    },
+  },
+];
 
 // Helper to get distance calculation pipeline stages
 // This uses the Haversine formula to calculate distance in km
@@ -938,6 +977,7 @@ const getHotJobs = asyncHandler(async (req, res) => {
       {
         $unwind: '$postedByUser'
       },
+      ...getCategoryLookupPipeline(),
       {
         $addFields: {
           postedBy: {
@@ -1158,6 +1198,7 @@ const searchHotJobs = asyncHandler(async (req, res) => {
         {
             $unwind: '$postedByUser'
         },
+        ...getCategoryLookupPipeline(),
       {
         $addFields: {
           postedBy: {
@@ -1295,6 +1336,7 @@ const getNormalJobs = asyncHandler(async (req, res) => {
         {
             $unwind: '$postedByUser'
         },
+        ...getCategoryLookupPipeline(),
       {
         $addFields: {
           postedBy: {
@@ -1439,6 +1481,7 @@ const searchNormalJobs = asyncHandler(async (req, res) => {
         {
             $unwind: '$postedByUser'
         },
+        ...getCategoryLookupPipeline(),
       {
         $addFields: {
           postedBy: {
@@ -1519,7 +1562,7 @@ const getJobById = asyncHandler(async (req, res) => {
       )
       .populate(
         "interestedUsers.user",
-        "profile.fullName profile.email phoneNumber profile.profileImage",
+        "profile.fullName profile.email phoneNumber profile.profileImage vehiclePreference",
       )
       .populate("category", "_id name slug icon");
 
@@ -1569,7 +1612,11 @@ const getMyJobs = asyncHandler(async (req, res) => {
   sort[sortBy] = sortOrder;
 
   try {
-    const jobs = await Job.find(filter).sort(sort).skip(skip).limit(limit);
+    const jobs = await Job.find(filter)
+      .populate("category", "_id name slug icon")
+      .sort(sort)
+      .skip(skip)
+      .limit(limit);
 
     const total = await Job.countDocuments(filter);
     const totalPages = Math.ceil(total / limit);

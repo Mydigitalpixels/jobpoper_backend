@@ -1,626 +1,2808 @@
 {
-	"info": {
-		"_postman_id": "jobpoper-backend-api",
-		"name": "JobPoper Backend API",
-		"description": "Collection for JobPoper Backend API endpoints.",
-		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
-	},
-	"item": [
-		{
-			"name": "Auth",
-			"item": [
-				{
-					"name": "Send Verification",
-					"request": {
-						"method": "POST",
-						"header": [],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"phoneNumber\": \"1234567890\"\n}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						},
-						"url": {
-							"raw": "{{baseUrl}}/auth/send-verification",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"auth",
-								"send-verification"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Verify Phone",
-					"request": {
-						"method": "POST",
-						"header": [],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"phoneNumber\": \"1234567890\",\n    \"verificationCode\": \"123456\"\n}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						},
-						"url": {
-							"raw": "{{baseUrl}}/auth/verify-phone",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"auth",
-								"verify-phone"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Register",
-					"request": {
-						"method": "POST",
-						"header": [],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"phoneNumber\": \"1234567890\",\n    \"pin\": \"1234\"\n}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						},
-						"url": {
-							"raw": "{{baseUrl}}/auth/register",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"auth",
-								"register"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Login",
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"var jsonData = pm.response.json();",
-									"if (jsonData.data && jsonData.data.token) {",
-									"    pm.collectionVariables.set(\"token\", jsonData.data.token);",
-									"}"
-								],
-								"type": "text/javascript"
-							}
-						}
-					],
-					"request": {
-						"method": "POST",
-						"header": [],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"phoneNumber\": \"1234567890\",\n    \"pin\": \"1234\"\n}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						},
-						"url": {
-							"raw": "{{baseUrl}}/auth/login",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"auth",
-								"login"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Get Me",
-					"request": {
-						"method": "GET",
-						"header": [
-							{
-								"key": "Authorization",
-								"value": "Bearer {{token}}",
-								"type": "text"
-							}
-						],
-						"url": {
-							"raw": "{{baseUrl}}/auth/me",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"auth",
-								"me"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Complete Profile",
-					"request": {
-						"method": "PUT",
-						"header": [
-							{
-								"key": "Authorization",
-								"value": "Bearer {{token}}",
-								"type": "text"
-							}
-						],
-						"body": {
-							"mode": "formdata",
-							"formdata": [
-								{
-									"key": "fullName",
-									"value": "John Doe",
-									"type": "text"
-								},
-								{
-									"key": "email",
-									"value": "john@example.com",
-									"type": "text"
-								},
-								{
-									"key": "location",
-									"value": "New York, NY",
-									"type": "text"
-								},
-								{
-									"key": "profileImage",
-									"type": "file",
-									"src": []
-								}
-							]
-						},
-						"url": {
-							"raw": "{{baseUrl}}/auth/complete-profile",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"auth",
-								"complete-profile"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Change Pin",
-					"request": {
-						"method": "PUT",
-						"header": [
-							{
-								"key": "Authorization",
-								"value": "Bearer {{token}}",
-								"type": "text"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"newPin\": \"5678\"\n}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						},
-						"url": {
-							"raw": "{{baseUrl}}/auth/change-pin",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"auth",
-								"change-pin"
-							]
-						}
-					},
-					"response": []
-				}
-			]
-		},
-		{
-			"name": "Jobs",
-			"item": [
-				{
-					"name": "Get Normal Jobs",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/jobs/normal?latitude=28.61&longitude=77.11",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"jobs",
-								"normal"
-							],
-							"query": [
-								{
-									"key": "latitude",
-									"value": "28.61"
-								},
-								{
-									"key": "longitude",
-									"value": "77.11"
-								},
-								{
-									"key": "location",
-									"value": "Delhi",
-									"disabled": true
-								}
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Get Hot Jobs",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/jobs/hot?latitude=28.61&longitude=77.11",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"jobs",
-								"hot"
-							],
-							"query": [
-								{
-									"key": "latitude",
-									"value": "28.61"
-								},
-								{
-									"key": "longitude",
-									"value": "77.11"
-								}
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Search Normal Jobs",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/jobs/search/normal?search=clean&latitude=28.61&longitude=77.11",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"jobs",
-								"search",
-								"normal"
-							],
-							"query": [
-								{
-									"key": "search",
-									"value": "clean"
-								},
-								{
-									"key": "latitude",
-									"value": "28.61"
-								},
-								{
-									"key": "longitude",
-									"value": "77.11"
-								}
-							]
-						}
-					},
-					"response": []
-				},
-                {
-					"name": "Search Hot Jobs",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/jobs/search/hot?search=clean&latitude=28.61&longitude=77.11",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"jobs",
-								"search",
-								"hot"
-							],
-							"query": [
-								{
-									"key": "search",
-									"value": "clean"
-								},
-								{
-									"key": "latitude",
-									"value": "28.61"
-								},
-								{
-									"key": "longitude",
-									"value": "77.11"
-								}
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Create Job",
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Authorization",
-								"value": "Bearer {{token}}",
-								"type": "text"
-							}
-						],
-						"body": {
-							"mode": "formdata",
-							"formdata": [
-								{
-									"key": "title",
-									"value": "New Job",
-									"type": "text"
-								},
-								{
-									"key": "description",
-									"value": "Job description",
-									"type": "text"
-								},
-                                {
-                                    "key": "category",
-                                    "value": "Cleaning",
-                                    "type": "text"
-                                },
-                                {
-                                    "key": "urgency",
-                                    "value": "Normal",
-                                    "type": "text"
-                                },
-                                {
-                                    "key": "status",
-                                    "value": "open",
-                                    "type": "text"
-                                },
-                                {
-                                    "key": "jobType",
-                                    "value": "OnSite",
-                                    "type": "text"
-                                },
-								{
-									"key": "images",
-									"type": "file",
-									"src": []
-								}
-							]
-						},
-						"url": {
-							"raw": "{{baseUrl}}/jobs",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"jobs"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "My Jobs",
-					"request": {
-						"method": "GET",
-						"header": [
-							{
-								"key": "Authorization",
-								"value": "Bearer {{token}}",
-								"type": "text"
-							}
-						],
-						"url": {
-							"raw": "{{baseUrl}}/jobs/my-jobs",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"jobs",
-								"my-jobs"
-							]
-						}
-					},
-					"response": []
-				}
-			]
-		},
-		{
-			"name": "Locations",
-			"item": [
-				{
-					"name": "Get My Locations",
-					"request": {
-						"method": "GET",
-						"header": [
-							{
-								"key": "Authorization",
-								"value": "Bearer {{token}}",
-								"type": "text"
-							}
-						],
-						"url": {
-							"raw": "{{baseUrl}}/locations",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"locations"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Save Location",
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Authorization",
-								"value": "Bearer {{token}}",
-								"type": "text"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"name\": \"Home\",\n    \"fullAddress\": \"123 Main St, City\",\n    \"latitude\": 28.61,\n    \"longitude\": 77.11\n}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						},
-						"url": {
-							"raw": "{{baseUrl}}/locations",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"locations"
-							]
-						}
-					},
-					"response": []
-				}
-			]
-		},
-		{
-			"name": "Notifications",
-			"item": [
-				{
-					"name": "Get Notifications",
-					"request": {
-						"method": "GET",
-						"header": [
-							{
-								"key": "Authorization",
-								"value": "Bearer {{token}}",
-								"type": "text"
-							}
-						],
-						"url": {
-							"raw": "{{baseUrl}}/notifications",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"notifications"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Get Unread Count",
-					"request": {
-						"method": "GET",
-						"header": [
-							{
-								"key": "Authorization",
-								"value": "Bearer {{token}}",
-								"type": "text"
-							}
-						],
-						"url": {
-							"raw": "{{baseUrl}}/notifications/unread-count",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"notifications",
-								"unread-count"
-							]
-						}
-					},
-					"response": []
-				}
-			]
-		},
+  "info": {
+    "_postman_id": "jobpoper-backend-api",
+    "name": "JobPoper Backend API",
+    "description": "Postman collection for all JobPoper Backend API endpoints. Import this file, set hostUrl/baseUrl if needed, then run Login or Admin Bootstrap/Login to populate token variables.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Root",
+      "item": [
         {
-			"name": "Health",
-			"item": [
-				{
-					"name": "Health Check",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/health",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"health"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "DB Check",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/health/db",
-							"host": [
-								"{{baseUrl}}"
-							],
-							"path": [
-								"health",
-								"db"
-							]
-						}
-					},
-					"response": []
-				}
-            ]
+          "name": "API Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "noauth"
+            },
+            "url": {
+              "raw": "{{hostUrl}}/",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": []
+            }
+          },
+          "response": []
         }
-	],
-	"variable": [
-		{
-			"key": "baseUrl",
-			"value": "http://localhost:3001/api",
-			"type": "string"
-		},
-		{
-			"key": "token",
-			"value": "",
-			"type": "string"
-		}
-	]
+      ]
+    },
+    {
+      "name": "Auth - Public",
+      "item": [
+        {
+          "name": "Send Verification",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"{{phoneNumber}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/auth/send-verification",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "send-verification"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Resend Verification",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"{{phoneNumber}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/auth/resend-verification",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "resend-verification"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Verify Phone",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"{{phoneNumber}}\",\n  \"verificationCode\": \"{{verificationCode}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/auth/verify-phone",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "verify-phone"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Register",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const jsonData = pm.response.json();",
+                  "if (jsonData.data && jsonData.data.token) pm.collectionVariables.set('token', jsonData.data.token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"{{phoneNumber}}\",\n  \"pin\": \"{{pin}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/auth/register",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "register"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const jsonData = pm.response.json();",
+                  "if (jsonData.data && jsonData.data.token) pm.collectionVariables.set('token', jsonData.data.token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"{{phoneNumber}}\",\n  \"pin\": \"{{pin}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/auth/login",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Check Phone",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"{{phoneNumber}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/auth/check-phone",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "check-phone"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Forgot Password - Send OTP",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"{{phoneNumber}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/auth/forgot-password/send-otp",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "forgot-password",
+                "send-otp"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Forgot Password - Verify OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const jsonData = pm.response.json();",
+                  "if (jsonData.data && jsonData.data.resetToken) pm.collectionVariables.set('resetToken', jsonData.data.resetToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"{{phoneNumber}}\",\n  \"verificationCode\": \"{{verificationCode}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/auth/forgot-password/verify-otp",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "forgot-password",
+                "verify-otp"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Forgot Password - Reset PIN",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{resetToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"newPin\": \"{{newPin}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/auth/forgot-password/reset-pin",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "forgot-password",
+                "reset-pin"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Auth - Protected",
+      "item": [
+        {
+          "name": "Get Me",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{hostUrl}}/api/auth/me",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "me"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Complete Profile",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "fullName",
+                  "value": "John Doe",
+                  "type": "text"
+                },
+                {
+                  "key": "email",
+                  "value": "john@example.com",
+                  "type": "text"
+                },
+                {
+                  "key": "location",
+                  "value": "Lahore, Pakistan",
+                  "type": "text"
+                },
+                {
+                  "key": "dateOfBirth",
+                  "value": "1995-01-15",
+                  "type": "text"
+                },
+                {
+                  "key": "profileImage",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/auth/complete-profile",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "complete-profile"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Verification Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{hostUrl}}/api/auth/verification-status",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "verification-status"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Submit Verification Documents",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "selfie",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "photoId",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/auth/verification-documents",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "verification-documents"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Change PIN",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"newPin\": \"{{newPin}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/auth/change-pin",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "change-pin"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Vehicle Preference",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{hostUrl}}/api/auth/vehicle-preference",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "vehicle-preference"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Vehicle Preference",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vehicleType\": \"2_wheeler\",\n  \"vehicleNumber\": \"ABC-1234\",\n  \"pricePerKm\": 25\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/auth/vehicle-preference",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "vehicle-preference"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Account",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{hostUrl}}/api/auth/delete-account",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "delete-account"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Auth - Admin Verification Routes",
+      "item": [
+        {
+          "name": "Get Verification Requests",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/auth/verification-requests?status=under_review&page=1&limit=20",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "verification-requests"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "under_review",
+                  "description": ""
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": ""
+                },
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Review Verification Request",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"approved\",\n  \"reviewNotes\": \"Looks good\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/auth/verification-requests/{{userId}}/review",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "verification-requests",
+                "{{userId}}",
+                "review"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "Setup Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "noauth"
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/admin/setup-status",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "setup-status"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Bootstrap First Admin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const jsonData = pm.response.json();",
+                  "if (jsonData.data && jsonData.data.token) pm.collectionVariables.set('adminToken', jsonData.data.token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"{{adminPhoneNumber}}\",\n  \"pin\": \"{{pin}}\",\n  \"fullName\": \"Admin User\",\n  \"email\": \"admin@example.com\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/admin/bootstrap",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "bootstrap"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Dashboard Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/admin/dashboard",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "dashboard"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Users",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/admin/users?limit=50",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "description": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get User By ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/admin/users/{{userId}}",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "users",
+                "{{userId}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Jobs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/admin/jobs?limit=50",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "jobs"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "description": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Job By ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/admin/jobs/{{jobId}}",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "jobs",
+                "{{jobId}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Pending Business Profiles",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/admin/business-profiles/pending?limit=100",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "business-profiles",
+                "pending"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "description": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Review Business Profile",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"approved\",\n  \"rejectionReason\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/admin/business-profiles/{{businessProfileId}}/review",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "business-profiles",
+                "{{businessProfileId}}",
+                "review"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Verification Requests",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/admin/verifications?limit=50",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "verifications"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "description": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Review Verification",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"approved\",\n  \"reviewNotes\": \"Verified\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/admin/verifications/{{userId}}/review",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "verifications",
+                "{{userId}}",
+                "review"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Jobs - Public",
+      "item": [
+        {
+          "name": "List Jobs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{hostUrl}}/api/jobs?page=1&limit=10&sortBy=createdAt&sortOrder=desc&search=&urgency=&latitude=31.5204&longitude=74.3587",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "jobs"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": ""
+                },
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "description": ""
+                },
+                {
+                  "key": "sortBy",
+                  "value": "createdAt",
+                  "description": ""
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "desc",
+                  "description": ""
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "description": ""
+                },
+                {
+                  "key": "urgency",
+                  "value": "",
+                  "description": ""
+                },
+                {
+                  "key": "latitude",
+                  "value": "31.5204",
+                  "description": ""
+                },
+                {
+                  "key": "longitude",
+                  "value": "74.3587",
+                  "description": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Hot Jobs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{hostUrl}}/api/jobs/hot?latitude=31.5204&longitude=74.3587&page=1&limit=10&category=%7B%7BserviceCategorySlug%7D%7D",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "jobs",
+                "hot"
+              ],
+              "query": [
+                {
+                  "key": "latitude",
+                  "value": "31.5204",
+                  "description": ""
+                },
+                {
+                  "key": "longitude",
+                  "value": "74.3587",
+                  "description": ""
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": ""
+                },
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "description": ""
+                },
+                {
+                  "key": "category",
+                  "value": "{{serviceCategorySlug}}",
+                  "description": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Search Hot Jobs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{hostUrl}}/api/jobs/search/hot?search=delivery&latitude=31.5204&longitude=74.3587&page=1&limit=10&category=%7B%7BserviceCategorySlug%7D%7D",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "jobs",
+                "search",
+                "hot"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "delivery",
+                  "description": ""
+                },
+                {
+                  "key": "latitude",
+                  "value": "31.5204",
+                  "description": ""
+                },
+                {
+                  "key": "longitude",
+                  "value": "74.3587",
+                  "description": ""
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": ""
+                },
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "description": ""
+                },
+                {
+                  "key": "category",
+                  "value": "{{serviceCategorySlug}}",
+                  "description": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Normal Jobs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{hostUrl}}/api/jobs/normal?latitude=31.5204&longitude=74.3587&page=1&limit=10&category=%7B%7BserviceCategorySlug%7D%7D",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "jobs",
+                "normal"
+              ],
+              "query": [
+                {
+                  "key": "latitude",
+                  "value": "31.5204",
+                  "description": ""
+                },
+                {
+                  "key": "longitude",
+                  "value": "74.3587",
+                  "description": ""
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": ""
+                },
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "description": ""
+                },
+                {
+                  "key": "category",
+                  "value": "{{serviceCategorySlug}}",
+                  "description": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Search Normal Jobs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{hostUrl}}/api/jobs/search/normal?search=cleaning&latitude=31.5204&longitude=74.3587&page=1&limit=10&category=%7B%7BserviceCategorySlug%7D%7D",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "jobs",
+                "search",
+                "normal"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "cleaning",
+                  "description": ""
+                },
+                {
+                  "key": "latitude",
+                  "value": "31.5204",
+                  "description": ""
+                },
+                {
+                  "key": "longitude",
+                  "value": "74.3587",
+                  "description": ""
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": ""
+                },
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "description": ""
+                },
+                {
+                  "key": "category",
+                  "value": "{{serviceCategorySlug}}",
+                  "description": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Job By ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{hostUrl}}/api/jobs/{{jobId}}",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "jobs",
+                "{{jobId}}"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Jobs - Protected",
+      "item": [
+        {
+          "name": "Create OnSite Job",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "title",
+                  "value": "Fix kitchen sink",
+                  "type": "text"
+                },
+                {
+                  "key": "description",
+                  "value": "Need help fixing a leaking sink.",
+                  "type": "text"
+                },
+                {
+                  "key": "cost",
+                  "value": "5000",
+                  "type": "text"
+                },
+                {
+                  "key": "jobType",
+                  "value": "OnSite",
+                  "type": "text"
+                },
+                {
+                  "key": "urgency",
+                  "value": "Normal",
+                  "type": "text"
+                },
+                {
+                  "key": "scheduledDate",
+                  "value": "2026-05-10",
+                  "type": "text"
+                },
+                {
+                  "key": "scheduledTime",
+                  "value": "10:30 AM",
+                  "type": "text"
+                },
+                {
+                  "key": "responsePreference",
+                  "value": "show_interest",
+                  "type": "text"
+                },
+                {
+                  "key": "category",
+                  "value": "{{serviceCategorySlug}}",
+                  "type": "text"
+                },
+                {
+                  "key": "location",
+                  "value": "{\"id\":\"home-location\",\"name\":\"Home\",\"fullAddress\":\"123 Main Street, Lahore\",\"latitude\":31.5204,\"longitude\":74.3587}",
+                  "type": "text"
+                },
+                {
+                  "key": "attachments",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/jobs",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "jobs"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Pickup Job",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "title",
+                  "value": "Pickup documents",
+                  "type": "text"
+                },
+                {
+                  "key": "description",
+                  "value": "Pick up and deliver documents.",
+                  "type": "text"
+                },
+                {
+                  "key": "cost",
+                  "value": "1200",
+                  "type": "text"
+                },
+                {
+                  "key": "jobType",
+                  "value": "Pickup",
+                  "type": "text"
+                },
+                {
+                  "key": "urgency",
+                  "value": "Urgent",
+                  "type": "text"
+                },
+                {
+                  "key": "scheduledDate",
+                  "value": "2026-05-10",
+                  "type": "text"
+                },
+                {
+                  "key": "scheduledTime",
+                  "value": "02:00 PM",
+                  "type": "text"
+                },
+                {
+                  "key": "responsePreference",
+                  "value": "direct_contact",
+                  "type": "text"
+                },
+                {
+                  "key": "distanceKm",
+                  "value": "7.4",
+                  "type": "text"
+                },
+                {
+                  "key": "category",
+                  "value": "{{serviceCategorySlug}}",
+                  "type": "text"
+                },
+                {
+                  "key": "location",
+                  "value": "{\"source\":{\"id\":\"home-location\",\"name\":\"Home\",\"fullAddress\":\"123 Main Street, Lahore\",\"latitude\":31.5204,\"longitude\":74.3587},\"destination\":{\"id\":\"office-location\",\"name\":\"Office\",\"fullAddress\":\"456 Mall Road, Lahore\",\"latitude\":31.5497,\"longitude\":74.3436}}",
+                  "type": "text"
+                },
+                {
+                  "key": "attachments",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/jobs",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "jobs"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "My Jobs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{hostUrl}}/api/jobs/my-jobs?page=1&limit=10&sortBy=createdAt&sortOrder=desc&status=open",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "jobs",
+                "my-jobs"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": ""
+                },
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "description": ""
+                },
+                {
+                  "key": "sortBy",
+                  "value": "createdAt",
+                  "description": ""
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "desc",
+                  "description": ""
+                },
+                {
+                  "key": "status",
+                  "value": "open",
+                  "description": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "My Interested Jobs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{hostUrl}}/api/jobs/my-interests?page=1&limit=10&sortBy=scheduledDate&sortOrder=asc",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "jobs",
+                "my-interests"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": ""
+                },
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "description": ""
+                },
+                {
+                  "key": "sortBy",
+                  "value": "scheduledDate",
+                  "description": ""
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "asc",
+                  "description": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Show Interest",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{hostUrl}}/api/jobs/{{jobId}}/interest",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "jobs",
+                "{{jobId}}",
+                "interest"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Expire Old Jobs",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{hostUrl}}/api/jobs/expire-old",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "jobs",
+                "expire-old"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Job",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "title",
+                  "value": "Updated job title",
+                  "type": "text"
+                },
+                {
+                  "key": "description",
+                  "value": "Updated description",
+                  "type": "text"
+                },
+                {
+                  "key": "cost",
+                  "value": "6500",
+                  "type": "text"
+                },
+                {
+                  "key": "jobType",
+                  "value": "OnSite",
+                  "type": "text"
+                },
+                {
+                  "key": "urgency",
+                  "value": "Normal",
+                  "type": "text"
+                },
+                {
+                  "key": "scheduledDate",
+                  "value": "2026-05-12",
+                  "type": "text"
+                },
+                {
+                  "key": "scheduledTime",
+                  "value": "11:00 AM",
+                  "type": "text"
+                },
+                {
+                  "key": "responsePreference",
+                  "value": "show_interest",
+                  "type": "text"
+                },
+                {
+                  "key": "category",
+                  "value": "{{serviceCategorySlug}}",
+                  "type": "text"
+                },
+                {
+                  "key": "location",
+                  "value": "{\"id\":\"home-location\",\"name\":\"Home\",\"fullAddress\":\"123 Main Street, Lahore\",\"latitude\":31.5204,\"longitude\":74.3587}",
+                  "type": "text"
+                },
+                {
+                  "key": "existingAttachments",
+                  "value": "[]",
+                  "type": "text"
+                },
+                {
+                  "key": "attachments",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/jobs/{{jobId}}",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "jobs",
+                "{{jobId}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Job Status",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"completed\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/jobs/{{jobId}}/status",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "jobs",
+                "{{jobId}}",
+                "status"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Job",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{hostUrl}}/api/jobs/{{jobId}}",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "jobs",
+                "{{jobId}}"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Locations",
+      "item": [
+        {
+          "name": "Create Location",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Home\",\n  \"fullAddress\": \"123 Main Street, Lahore\",\n  \"latitude\": 31.5204,\n  \"longitude\": 74.3587,\n  \"addressDetails\": \"Near park\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/locations",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "locations"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Locations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{hostUrl}}/api/locations",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "locations"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Location",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Home Updated\",\n  \"fullAddress\": \"123 Main Street, Lahore\",\n  \"latitude\": 31.5204,\n  \"longitude\": 74.3587,\n  \"addressDetails\": \"Gate 2\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/locations/{{locationId}}",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "locations",
+                "{{locationId}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Location",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{hostUrl}}/api/locations/{{locationId}}",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "locations",
+                "{{locationId}}"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "item": [
+        {
+          "name": "List Notifications",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{hostUrl}}/api/notifications?page=1&limit=20&sortBy=createdAt&sortOrder=desc&isRead=false",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "notifications"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": ""
+                },
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": ""
+                },
+                {
+                  "key": "sortBy",
+                  "value": "createdAt",
+                  "description": ""
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "desc",
+                  "description": ""
+                },
+                {
+                  "key": "isRead",
+                  "value": "false",
+                  "description": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Unread Count",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{hostUrl}}/api/notifications/unread-count",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "notifications",
+                "unread-count"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Mark All As Read",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{hostUrl}}/api/notifications/read-all",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "notifications",
+                "read-all"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Mark Notification As Read",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{hostUrl}}/api/notifications/{{notificationId}}/read",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "notifications",
+                "{{notificationId}}",
+                "read"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Notification",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{hostUrl}}/api/notifications/{{notificationId}}",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "notifications",
+                "{{notificationId}}"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Devices",
+      "item": [
+        {
+          "name": "Register Device",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deviceId\": \"{{deviceId}}\",\n  \"deviceName\": \"iPhone 15\",\n  \"platform\": \"ios\",\n  \"osVersion\": \"17.0\",\n  \"appVersion\": \"1.0.0\",\n  \"pushNotificationToken\": \"{{pushNotificationToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/devices",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "devices"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Unregister Device",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{hostUrl}}/api/devices/{{deviceId}}",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "devices",
+                "{{deviceId}}"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Service Categories",
+      "item": [
+        {
+          "name": "List Service Categories",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "noauth"
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/service-categories?includeInactive=false",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "service-categories"
+              ],
+              "query": [
+                {
+                  "key": "includeInactive",
+                  "value": "false",
+                  "description": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Service Category By ID Or Slug",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "noauth"
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/service-categories/{{serviceCategorySlug}}",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "service-categories",
+                "{{serviceCategorySlug}}"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Business Categories",
+      "item": [
+        {
+          "name": "List Business Categories",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "noauth"
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/business-categories?includeInactive=false",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "business-categories"
+              ],
+              "query": [
+                {
+                  "key": "includeInactive",
+                  "value": "false",
+                  "description": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Business Category By ID Or Slug",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "noauth"
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/business-categories/{{businessCategorySlug}}",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "business-categories",
+                "{{businessCategorySlug}}"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Business Profiles",
+      "item": [
+        {
+          "name": "List Approved Business Profiles",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{hostUrl}}/api/business-profiles?page=1&limit=10&search=&category=%7B%7BbusinessCategoryId%7D%7D",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "business-profiles"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": ""
+                },
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "description": ""
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "description": ""
+                },
+                {
+                  "key": "category",
+                  "value": "{{businessCategoryId}}",
+                  "description": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "My Business Profiles",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{hostUrl}}/api/business-profiles/me",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "business-profiles",
+                "me"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Business Profile",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "businessName",
+                  "value": "Acme Services",
+                  "type": "text"
+                },
+                {
+                  "key": "category",
+                  "value": "{{businessCategoryId}}",
+                  "type": "text"
+                },
+                {
+                  "key": "address",
+                  "value": "123 Main Street, Lahore",
+                  "type": "text"
+                },
+                {
+                  "key": "phoneNumber",
+                  "value": "{{phoneNumber}}",
+                  "type": "text"
+                },
+                {
+                  "key": "primaryIndex",
+                  "value": "0",
+                  "type": "text"
+                },
+                {
+                  "key": "images",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/business-profiles",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "business-profiles"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Business Profile",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "businessName",
+                  "value": "Acme Services Updated",
+                  "type": "text"
+                },
+                {
+                  "key": "category",
+                  "value": "{{businessCategoryId}}",
+                  "type": "text"
+                },
+                {
+                  "key": "address",
+                  "value": "456 Mall Road, Lahore",
+                  "type": "text"
+                },
+                {
+                  "key": "phoneNumber",
+                  "value": "{{phoneNumber}}",
+                  "type": "text"
+                },
+                {
+                  "key": "primaryIndex",
+                  "value": "0",
+                  "type": "text"
+                },
+                {
+                  "key": "images",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/business-profiles/{{businessProfileId}}",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "business-profiles",
+                "{{businessProfileId}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Business Profile",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{hostUrl}}/api/business-profiles/{{businessProfileId}}",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "business-profiles",
+                "{{businessProfileId}}"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "Users Placeholder",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "noauth"
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/users",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "users"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "noauth"
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/health",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "health"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Database Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "noauth"
+            },
+            "url": {
+              "raw": "{{hostUrl}}/api/health/db",
+              "host": [
+                "{{hostUrl}}"
+              ],
+              "path": [
+                "api",
+                "health",
+                "db"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Legacy Non-API Aliases",
+      "description": "Aliases mounted in server.js for backwards compatibility.",
+      "item": [
+        {
+          "name": "Auth (/auth)",
+          "description": "Server also mounts auth routes without the /api prefix.",
+          "item": [
+            {
+              "name": "Legacy Login",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const jsonData = pm.response.json();",
+                      "if (jsonData.data && jsonData.data.token) pm.collectionVariables.set('token', jsonData.data.token);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [],
+                "auth": {
+                  "type": "noauth"
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"phoneNumber\": \"{{phoneNumber}}\",\n  \"pin\": \"{{pin}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{hostUrl}}/auth/login",
+                  "host": [
+                    "{{hostUrl}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "login"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Legacy Get Me",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{hostUrl}}/auth/me",
+                  "host": [
+                    "{{hostUrl}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "me"
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Devices (/devices)",
+          "item": [
+            {
+              "name": "Legacy Register Device",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"deviceId\": \"{{deviceId}}\",\n  \"platform\": \"ios\",\n  \"pushNotificationToken\": \"{{pushNotificationToken}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{hostUrl}}/devices",
+                  "host": [
+                    "{{hostUrl}}"
+                  ],
+                  "path": [
+                    "devices"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Legacy Unregister Device",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{hostUrl}}/devices/{{deviceId}}",
+                  "host": [
+                    "{{hostUrl}}"
+                  ],
+                  "path": [
+                    "devices",
+                    "{{deviceId}}"
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Service Categories (/service-categories)",
+          "item": [
+            {
+              "name": "Legacy List Service Categories",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "auth": {
+                  "type": "noauth"
+                },
+                "url": {
+                  "raw": "{{hostUrl}}/service-categories",
+                  "host": [
+                    "{{hostUrl}}"
+                  ],
+                  "path": [
+                    "service-categories"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Legacy Get Service Category",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "auth": {
+                  "type": "noauth"
+                },
+                "url": {
+                  "raw": "{{hostUrl}}/service-categories/{{serviceCategorySlug}}",
+                  "host": [
+                    "{{hostUrl}}"
+                  ],
+                  "path": [
+                    "service-categories",
+                    "{{serviceCategorySlug}}"
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Business Categories (/business-categories)",
+          "item": [
+            {
+              "name": "Legacy List Business Categories",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "auth": {
+                  "type": "noauth"
+                },
+                "url": {
+                  "raw": "{{hostUrl}}/business-categories",
+                  "host": [
+                    "{{hostUrl}}"
+                  ],
+                  "path": [
+                    "business-categories"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Legacy Get Business Category",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "auth": {
+                  "type": "noauth"
+                },
+                "url": {
+                  "raw": "{{hostUrl}}/business-categories/{{businessCategorySlug}}",
+                  "host": [
+                    "{{hostUrl}}"
+                  ],
+                  "path": [
+                    "business-categories",
+                    "{{businessCategorySlug}}"
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Business Profiles (/business-profiles)",
+          "item": [
+            {
+              "name": "Legacy List Approved Business Profiles",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{hostUrl}}/business-profiles?page=1&limit=10",
+                  "host": [
+                    "{{hostUrl}}"
+                  ],
+                  "path": [
+                    "business-profiles"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1",
+                      "description": ""
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10",
+                      "description": ""
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Legacy My Business Profiles",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{hostUrl}}/business-profiles/me",
+                  "host": [
+                    "{{hostUrl}}"
+                  ],
+                  "path": [
+                    "business-profiles",
+                    "me"
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "hostUrl",
+      "value": "http://localhost:3001",
+      "type": "string"
+    },
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3001/api",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "adminToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "resetToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "phoneNumber",
+      "value": "+923001234567",
+      "type": "string"
+    },
+    {
+      "key": "adminPhoneNumber",
+      "value": "+923009999999",
+      "type": "string"
+    },
+    {
+      "key": "pin",
+      "value": "1234",
+      "type": "string"
+    },
+    {
+      "key": "newPin",
+      "value": "5678",
+      "type": "string"
+    },
+    {
+      "key": "verificationCode",
+      "value": "123456",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "jobId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "locationId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "notificationId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "deviceId",
+      "value": "device-123",
+      "type": "string"
+    },
+    {
+      "key": "pushNotificationToken",
+      "value": "pending",
+      "type": "string"
+    },
+    {
+      "key": "serviceCategorySlug",
+      "value": "plumbing",
+      "type": "string"
+    },
+    {
+      "key": "businessCategorySlug",
+      "value": "restaurant",
+      "type": "string"
+    },
+    {
+      "key": "businessCategoryId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "businessProfileId",
+      "value": "",
+      "type": "string"
+    }
+  ]
 }

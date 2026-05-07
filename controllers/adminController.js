@@ -47,6 +47,15 @@ const buildAdminJob = (job) => ({
     phoneNumber: job.postedBy?.phoneNumber || "",
     fullName: job.postedBy?.profile?.fullName || "",
   },
+  category:
+    job.category && typeof job.category === "object"
+      ? {
+          id: job.category._id,
+          name: job.category.name || "",
+          slug: job.category.slug || "",
+          icon: job.category.icon || "",
+        }
+      : null,
   interestedCount: Array.isArray(job.interestedUsers)
     ? job.interestedUsers.length
     : 0,
@@ -133,8 +142,9 @@ const getDashboardSummary = asyncHandler(async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(5)
       .populate("postedBy", "phoneNumber profile.fullName")
+      .populate("category", "_id name slug icon")
       .select(
-        "title urgency status jobType cost responsePreference scheduledDate scheduledTime postedBy interestedUsers createdAt",
+        "title urgency status jobType cost responsePreference scheduledDate scheduledTime postedBy category interestedUsers createdAt",
       ),
   ]);
 
@@ -295,8 +305,9 @@ const getAdminJobs = asyncHandler(async (req, res) => {
     .sort({ createdAt: -1 })
     .limit(limit)
     .populate("postedBy", "phoneNumber profile.fullName")
+    .populate("category", "_id name slug icon")
     .select(
-      "title urgency status jobType cost responsePreference scheduledDate scheduledTime postedBy interestedUsers createdAt",
+      "title urgency status jobType cost responsePreference scheduledDate scheduledTime postedBy category interestedUsers createdAt",
     );
 
   res.status(200).json({
@@ -313,6 +324,7 @@ const getAdminJobs = asyncHandler(async (req, res) => {
 const getAdminJobById = asyncHandler(async (req, res) => {
   const job = await Job.findById(req.params.jobId)
     .populate("postedBy", "phoneNumber profile.fullName")
+    .populate("category", "_id name slug icon")
     .populate("interestedUsers.user", "phoneNumber profile.fullName");
 
   if (!job) {
