@@ -11,7 +11,12 @@ let _initErrorLogged = false;
  */
 function getAndroidChannelId(type) {
   const t = (type || "").toString().toLowerCase();
-  if (t === "job_created" || t === "job_interest" || t === "verification_review")
+  if (
+    t === "job_created" ||
+    t === "job_interest" ||
+    t === "verification_review" ||
+    t === "business_profile_review"
+  )
     return "jobpoper_jobs";
   return "jobpoper_default";
 }

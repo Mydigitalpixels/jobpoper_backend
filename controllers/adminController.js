@@ -424,7 +424,7 @@ const reviewBusinessProfileRequest = asyncHandler(async (req, res) => {
   await profile.save();
 
   try {
-    await Notification.create({
+    const businessProfileNotif = await Notification.create({
       recipient: profile.user,
       type: "business_profile_review",
       title:
@@ -440,6 +440,9 @@ const reviewBusinessProfileRequest = asyncHandler(async (req, res) => {
       navigationIdentifier: `business-profile:${profile._id}`,
       isRead: false,
     });
+    sendPushToUserForNotification(profile.user, businessProfileNotif, Device).catch((e) =>
+      console.warn("[FCM] business_profile_review push failed", e && e.message),
+    );
   } catch (notificationErr) {
     console.error(
       "[BusinessProfile] failed to create review notification:",

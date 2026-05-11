@@ -64,6 +64,9 @@ jspm_packages/
 .env.test.local
 .env.production.local
 
+# Firebase / GCP (local only; keys must not be in git)
+firebase-service-account.json
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 .parcel-cache
@@ -202,4 +205,4 @@ Thumbs.db
 # Build directories
 build/
 dist/
-firebase-service-account.json
+
