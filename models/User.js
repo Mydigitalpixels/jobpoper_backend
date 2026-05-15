@@ -40,6 +40,22 @@ const userSchema = new mongoose.Schema({
       trim: true,
       maxlength: [200, 'Location cannot be more than 200 characters']
     },
+    currentLocation: {
+      fullAddress: {
+        type: String,
+        trim: true,
+        maxlength: [200, 'Location cannot be more than 200 characters']
+      },
+      latitude: {
+        type: Number
+      },
+      longitude: {
+        type: Number
+      },
+      updatedAt: {
+        type: Date
+      }
+    },
     dateOfBirth: {
       type: Date
     },

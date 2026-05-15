@@ -164,22 +164,41 @@ const createJobCreatedNotifications = async (job, jobCreatorId) => {
     const jobLng = coords.lng;
     const creatorObjectId = new mongoose.Types.ObjectId(jobCreatorId);
 
-    // Haversine in aggregation: distance from each Location's lat/lng to (jobLat, jobLng)
-    const nearbyUserIds = await Location.aggregate([
-      { $match: { user: { $ne: creatorObjectId } } },
+    // Prefer each user's current profile location. Saved locations are only a
+    // fallback for older users who have not selected a current location yet.
+    const usersWithCurrentLocation = await User.find({
+      _id: { $ne: creatorObjectId },
+      "profile.currentLocation.latitude": { $type: "number" },
+      "profile.currentLocation.longitude": { $type: "number" },
+    }).select("_id");
+    const usersWithCurrentLocationIds = usersWithCurrentLocation.map((u) => u._id);
+
+    const currentLocationMatches = await User.aggregate([
+      {
+        $match: {
+          _id: { $ne: creatorObjectId },
+          isActive: true,
+          "profile.currentLocation.latitude": { $type: "number" },
+          "profile.currentLocation.longitude": { $type: "number" },
+        },
+      },
       {
         $addFields: {
           distance: {
             $let: {
               vars: {
                 dLat: {
-                  $degreesToRadians: { $subtract: ["$latitude", jobLat] },
+                  $degreesToRadians: {
+                    $subtract: ["$profile.currentLocation.latitude", jobLat],
+                  },
                 },
                 dLng: {
-                  $degreesToRadians: { $subtract: ["$longitude", jobLng] },
+                  $degreesToRadians: {
+                    $subtract: ["$profile.currentLocation.longitude", jobLng],
+                  },
                 },
                 lat1: { $degreesToRadians: jobLat },
-                lat2: { $degreesToRadians: "$latitude" },
+                lat2: { $degreesToRadians: "$profile.currentLocation.latitude" },
                 radius: 6371,
               },
               in: {
@@ -219,11 +238,87 @@ const createJobCreatedNotifications = async (job, jobCreatorId) => {
         },
       },
       { $match: { distance: { $lte: RADIUS_KM } } },
-      { $group: { _id: "$user" } },
+      { $project: { _id: 1 } },
       { $limit: MAX_RECIPIENTS },
     ]);
 
-    const userIds = nearbyUserIds.map((doc) => doc._id);
+    const remainingRecipientSlots = Math.max(
+      MAX_RECIPIENTS - currentLocationMatches.length,
+      0,
+    );
+    let savedLocationMatches = [];
+    if (remainingRecipientSlots > 0) {
+      // Haversine in aggregation: distance from each saved Location's lat/lng to (jobLat, jobLng)
+      savedLocationMatches = await Location.aggregate([
+        {
+          $match: {
+            user: {
+              $ne: creatorObjectId,
+              $nin: usersWithCurrentLocationIds,
+            },
+          },
+        },
+        {
+          $addFields: {
+            distance: {
+              $let: {
+                vars: {
+                  dLat: {
+                    $degreesToRadians: { $subtract: ["$latitude", jobLat] },
+                  },
+                  dLng: {
+                    $degreesToRadians: { $subtract: ["$longitude", jobLng] },
+                  },
+                  lat1: { $degreesToRadians: jobLat },
+                  lat2: { $degreesToRadians: "$latitude" },
+                  radius: 6371,
+                },
+                in: {
+                  $multiply: [
+                    "$$radius",
+                    2,
+                    {
+                      $asin: {
+                        $sqrt: {
+                          $add: [
+                            {
+                              $pow: [
+                                { $sin: { $divide: ["$$dLat", 2] } },
+                                2,
+                              ],
+                            },
+                            {
+                              $multiply: [
+                                { $cos: "$$lat1" },
+                                { $cos: "$$lat2" },
+                                {
+                                  $pow: [
+                                    { $sin: { $divide: ["$$dLng", 2] } },
+                                    2,
+                                  ],
+                                },
+                              ],
+                            },
+                          ],
+                        },
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+        { $match: { distance: { $lte: RADIUS_KM } } },
+        { $group: { _id: "$user" } },
+        { $limit: remainingRecipientSlots },
+      ]);
+    }
+
+    const userIds = [
+      ...currentLocationMatches.map((doc) => doc._id),
+      ...savedLocationMatches.map((doc) => doc._id),
+    ];
     if (userIds.length === 0) {
       console.log(
         "[NOTIFICATION] No nearby users (within",

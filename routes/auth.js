@@ -8,6 +8,7 @@ const {
   login,
   checkPhoneExists,
   completeProfile,
+  updateCurrentLocation,
   getMe,
   changePin,
   sendForgotPasswordOtp,
@@ -41,6 +42,7 @@ router.post('/forgot-password/reset-pin', resetPin);
 router.use(protect); // All routes below this middleware are protected
 router.get('/me', getMe);
 router.put('/complete-profile', uploadProfileImage, completeProfile);
+router.put('/current-location', updateCurrentLocation);
 router.get('/verification-status', getVerificationStatus);
 router.put('/verification-documents', uploadVerificationDocuments, submitVerificationDocuments);
 router.put('/change-pin', changePin);

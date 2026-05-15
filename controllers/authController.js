@@ -22,6 +22,30 @@ const buildUserResponse = (user) => ({
   lastLogin: user.lastLogin
 });
 
+const parseCoordinate = (value) => {
+  if (value === undefined || value === null || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const applyCurrentLocation = (user, { fullAddress, latitude, longitude }) => {
+  const parsedLatitude = parseCoordinate(latitude);
+  const parsedLongitude = parseCoordinate(longitude);
+
+  if (!fullAddress || parsedLatitude === null || parsedLongitude === null) {
+    return false;
+  }
+
+  user.profile.location = fullAddress;
+  user.profile.currentLocation = {
+    fullAddress,
+    latitude: parsedLatitude,
+    longitude: parsedLongitude,
+    updatedAt: new Date()
+  };
+  return true;
+};
+
 // @desc    Send phone verification code
 // @route   POST /api/auth/send-verification
 // @access  Public
@@ -299,7 +323,7 @@ const checkPhoneExists = asyncHandler(async (req, res) => {
 // @route   PUT /api/auth/complete-profile
 // @access  Private
 const completeProfile = asyncHandler(async (req, res) => {
-  const { fullName, email, location, dateOfBirth } = req.body;
+  const { fullName, email, location, dateOfBirth, latitude, longitude } = req.body;
   const user = req.user;
 
   console.log("[PROFILE] completeProfile called", {
@@ -345,7 +369,16 @@ const completeProfile = asyncHandler(async (req, res) => {
     });
     user.profile.fullName = fullName;
     user.profile.email = email;
-    user.profile.location = location || user.profile.location;
+    if (location) {
+      const updatedCurrentLocation = applyCurrentLocation(user, {
+        fullAddress: location,
+        latitude,
+        longitude
+      });
+      if (!updatedCurrentLocation) {
+        user.profile.location = location;
+      }
+    }
     user.profile.dateOfBirth = dateOfBirth || user.profile.dateOfBirth;
     // If a file was uploaded and processed, use that; otherwise keep existing value
     if (req.processedFileName) {
@@ -379,6 +412,45 @@ const completeProfile = asyncHandler(async (req, res) => {
       error: error.message
     });
   }
+});
+
+// @desc    Update current user location used for nearby jobs and notifications
+// @route   PUT /api/auth/current-location
+// @access  Private
+const updateCurrentLocation = asyncHandler(async (req, res) => {
+  const { fullAddress, location, latitude, longitude } = req.body;
+  const user = req.user;
+  const address = fullAddress || location;
+
+  if (!address || latitude === undefined || longitude === undefined) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Full address, latitude, and longitude are required'
+    });
+  }
+
+  const updated = applyCurrentLocation(user, {
+    fullAddress: address,
+    latitude,
+    longitude
+  });
+
+  if (!updated) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Latitude and longitude must be valid numbers'
+    });
+  }
+
+  await user.save();
+
+  res.status(200).json({
+    status: 'success',
+    message: 'Current location updated successfully',
+    data: {
+      user: buildUserResponse(user)
+    }
+  });
 });
 
 // @desc    Get current user
@@ -941,6 +1013,7 @@ module.exports = {
   login,
   checkPhoneExists,
   completeProfile,
+  updateCurrentLocation,
   getMe,
   getVerificationStatus,
   submitVerificationDocuments,

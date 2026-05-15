@@ -86,4 +86,88 @@ const unregisterDevice = asyncHandler(async (req, res) => {
   res.json({ status: "success", message: "Device unregistered" });
 });
 
-module.exports = { registerDevice, unregisterDevice };
+// @desc    Diagnostic: list ALL device rows owned by the currently-authenticated user.
+//          Use to verify that a phone successfully registered a token on login.
+// @route   GET /api/devices/me
+// @access  Private
+const listMyDevices = asyncHandler(async (req, res) => {
+  const rows = await Device.find({ user: req.user._id })
+    .select(
+      "deviceId deviceName platform osVersion appVersion isActive pushNotificationToken updatedAt createdAt",
+    )
+    .lean();
+  res.json({
+    status: "success",
+    data: {
+      userId: req.user._id.toString(),
+      count: rows.length,
+      activeCount: rows.filter((r) => r.isActive).length,
+      withTokenCount: rows.filter(
+        (r) => r.pushNotificationToken && r.pushNotificationToken !== "",
+      ).length,
+      devices: rows.map((r) => ({
+        deviceId: r.deviceId,
+        deviceName: r.deviceName,
+        platform: r.platform,
+        osVersion: r.osVersion,
+        appVersion: r.appVersion,
+        isActive: r.isActive,
+        tokenPresent: !!r.pushNotificationToken,
+        tokenLen: (r.pushNotificationToken || "").length,
+        tokenTail: r.pushNotificationToken
+          ? r.pushNotificationToken.slice(-8)
+          : null,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+      })),
+    },
+  });
+});
+
+// @desc    Send a test push notification to ALL currently-active devices of the
+//          authenticated user. Lets you verify FCM end-to-end without needing
+//          multiple physical phones / nearby users / job creation.
+// @route   POST /api/devices/test-push
+// @access  Private
+// @body    { title?: string, body?: string, includeInactive?: boolean }
+const sendTestPush = asyncHandler(async (req, res) => {
+  const { sendPushToUserForNotification } = require("../services/pushNotificationService");
+  const title = (req.body?.title || "JobPoper test push").toString().slice(0, 120);
+  const body =
+    (req.body?.body || "If you see this on your device, FCM is wired up correctly. 🎉")
+      .toString()
+      .slice(0, 240);
+  const includeInactive = req.body?.includeInactive === true;
+
+  // Build a "notification-like" object — same shape sendPushToUserForNotification
+  // already accepts for job_created / job_interest etc.
+  const fakeNotification = {
+    _id: { toString: () => `test-${Date.now()}` },
+    title,
+    message: body,
+    type: includeInactive ? "verification_review" : "job_created", // verification_review bypasses isActive filter
+    navigationIdentifier: "system:test",
+    relatedEntityId: req.user._id,
+    relatedEntityType: "User",
+  };
+
+  console.log("[FCM] Test-push requested by user", req.user._id.toString(), {
+    title,
+    body,
+    includeInactive,
+  });
+
+  const result = await sendPushToUserForNotification(
+    req.user._id,
+    fakeNotification,
+    Device,
+  );
+
+  res.json({
+    status: "success",
+    message: "Test push attempted — see server logs for per-token responses",
+    result,
+  });
+});
+
+module.exports = { registerDevice, unregisterDevice, listMyDevices, sendTestPush };
