@@ -206,3 +206,4 @@ Thumbs.db
 build/
 dist/
 
+./firebase-service-account.json
