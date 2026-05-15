@@ -12,12 +12,36 @@ const registerDevice = asyncHandler(async (req, res) => {
     return res.status(400).json({ status: "error", message: "deviceId is required" });
   }
 
-  const token = pushNotificationToken && pushNotificationToken !== "pending" ? String(pushNotificationToken) : "";
+  const token =
+    pushNotificationToken && pushNotificationToken !== "pending"
+      ? String(pushNotificationToken)
+      : "";
   if (token && token.length > 500) {
     return res.status(400).json({ status: "error", message: "pushNotificationToken too long" });
   }
 
-  await Device.findOneAndUpdate(
+  // CROSS-ACCOUNT FIX: when a fresh login happens on a physical device, any rows
+  // for the SAME deviceId belonging to OTHER users must be set isActive:false so
+  // pushes targeted at those previous users don't continue routing to this device.
+  // We also strip the token from those rows so the recipient query (which filters
+  // by non-empty token) no longer matches them — Firebase Console messages won't
+  // suddenly resurrect a logged-out account either.
+  const otherUsersResult = await Device.updateMany(
+    { deviceId: String(deviceId), user: { $ne: req.user._id } },
+    { $set: { isActive: false, pushNotificationToken: "" } },
+  );
+  if (otherUsersResult.modifiedCount) {
+    console.log(
+      "[DEVICES] Deactivated",
+      otherUsersResult.modifiedCount,
+      "previous user(s) on deviceId",
+      String(deviceId),
+      "for current user",
+      req.user._id.toString(),
+    );
+  }
+
+  const updated = await Device.findOneAndUpdate(
     { user: req.user._id, deviceId: String(deviceId) },
     {
       $set: {
@@ -33,6 +57,16 @@ const registerDevice = asyncHandler(async (req, res) => {
     },
     { upsert: true, new: true, runValidators: true },
   );
+
+  console.log("[DEVICES] Registered/updated device:", {
+    user: req.user._id.toString(),
+    deviceId: String(deviceId),
+    platform: updated?.platform,
+    tokenPresent: !!token,
+    tokenLen: token.length,
+    tokenTail: token ? token.slice(-8) : null,
+    isActive: updated?.isActive,
+  });
 
   res.json({ status: "success", message: "Device registered" });
 });

@@ -72,6 +72,15 @@ function initAdmin() {
 }
 
 /**
+ * Mask a token for logs — we never want full tokens in CloudWatch / Sentry.
+ */
+function maskToken(t) {
+  if (!t || typeof t !== "string") return "(empty)";
+  if (t.length <= 12) return t;
+  return `${t.slice(0, 6)}…${t.slice(-6)}(len=${t.length})`;
+}
+
+/**
  * @param {import('mongoose').Types.ObjectId|string} userId
  * @param {{ _id: import('mongoose').Types.ObjectId, title: string, message: string, type: string, navigationIdentifier?: string, relatedEntityId?: any }} notification
  * @param {import('mongoose').Model} DeviceModel
@@ -81,26 +90,40 @@ async function sendPushToUserForNotification(
   notification,
   Device = require("../models/Device"),
 ) {
+  const userIdStr = userId && userId.toString ? userId.toString() : String(userId);
+  const nid = notification?._id
+    ? notification._id.toString()
+    : String(notification?._id);
+  const notifyType = String(notification?.type || "");
+  const logCtx = {
+    userId: userIdStr,
+    notificationId: nid,
+    type: notifyType,
+    title: notification?.title,
+  };
+
   const a = initAdmin();
-  if (!a) return { sent: 0, skipped: true };
-  const nid = notification._id ? notification._id.toString() : String(notification._id);
+  if (!a) {
+    console.warn("[FCM] SKIP send — firebase-admin not initialised.", logCtx);
+    return { sent: 0, skipped: true, reason: "admin_not_initialised" };
+  }
+
   const data = {
     notificationId: nid,
-    type: String(notification.type || "system"),
-    title: String(notification.title || ""),
-    body: String(notification.message || ""),
+    type: notifyType || "system",
+    title: String(notification?.title || ""),
+    body: String(notification?.message || ""),
   };
-  if (notification.navigationIdentifier) {
+  if (notification?.navigationIdentifier) {
     data.navigationIdentifier = String(notification.navigationIdentifier);
   }
-  if (notification.relatedEntityId) {
+  if (notification?.relatedEntityId) {
     data.relatedEntityId = String(notification.relatedEntityId);
   }
-  if (notification.relatedEntityType) {
+  if (notification?.relatedEntityType) {
     data.relatedEntityType = String(notification.relatedEntityType);
   }
 
-  const notifyType = String(notification.type || "");
   const deviceQuery = {
     user: userId,
     pushNotificationToken: { $exists: true, $ne: "" },
@@ -112,6 +135,33 @@ async function sendPushToUserForNotification(
   }
 
   const devices = await Device.find(deviceQuery).lean();
+  console.log("[FCM] Recipient lookup:", {
+    ...logCtx,
+    deviceMatches: devices.length,
+    filter: notifyType !== "verification_review" ? "isActive:true" : "any",
+  });
+
+  if (!devices.length) {
+    // Diagnostics: show what we DID find for this user, regardless of token state, so the
+    // operator can immediately tell whether the user has no device at all vs. has one with
+    // an empty token vs. has one with isActive:false.
+    const allForUser = await Device.find({ user: userId })
+      .select("deviceId platform isActive pushNotificationToken updatedAt")
+      .lean();
+    console.warn("[FCM] SKIP send — no matching device rows.", {
+      ...logCtx,
+      reason: "no_devices",
+      anyRowsForUser: allForUser.length,
+      rowsForUser: allForUser.map((d) => ({
+        deviceId: d.deviceId,
+        platform: d.platform,
+        isActive: d.isActive,
+        tokenLen: (d.pushNotificationToken || "").length,
+        updatedAt: d.updatedAt,
+      })),
+    });
+    return { sent: 0, skipped: true, reason: "no_devices" };
+  }
 
   const valid = [
     ...new Set(
@@ -127,15 +177,34 @@ async function sendPushToUserForNotification(
     ),
   ];
   if (!valid.length) {
+    console.warn("[FCM] SKIP send — devices found but no usable tokens.", {
+      ...logCtx,
+      deviceMatches: devices.length,
+      tokens: devices.map((d) => maskToken(d.pushNotificationToken)),
+    });
     return { sent: 0, skipped: true, reason: "no_tokens" };
   }
 
   const channelId = getAndroidChannelId(notification.type);
   const messaging = a.messaging();
+
+  console.log("[FCM] Sending push:", {
+    ...logCtx,
+    channelId,
+    tokens: valid.length,
+    tokenPreviews: valid.map(maskToken),
+  });
+
+  const startedAt = Date.now();
+  const results = [];
   let success = 0;
+  let failure = 0;
+  const failureCodes = {};
+
   for (const token of valid) {
+    const sendStartedAt = Date.now();
     try {
-      await messaging.send({
+      const messageId = await messaging.send({
         token,
         notification: {
           title: notification.title,
@@ -146,34 +215,95 @@ async function sendPushToUserForNotification(
         ),
         android: {
           priority: "high",
-          notification: { channelId, sound: "default" },
+          ttl: 60 * 60 * 1000, // 1 hour — drop if device is offline that long
+          notification: {
+            channelId,
+            sound: "default",
+            defaultSound: true,
+            defaultVibrateTimings: true,
+            notificationPriority: "PRIORITY_HIGH",
+          },
         },
         apns: {
+          headers: {
+            "apns-priority": "10",
+            "apns-push-type": "alert",
+          },
           payload: {
-            aps: { sound: "default", badge: 1 },
+            aps: {
+              alert: {
+                title: notification.title,
+                body: notification.message,
+              },
+              sound: "default",
+              badge: 1,
+              "mutable-content": 1,
+              "content-available": 1,
+            },
           },
         },
       });
       success++;
+      const tookMs = Date.now() - sendStartedAt;
+      const entry = {
+        ok: true,
+        tokenTail: maskToken(token),
+        messageId,
+        tookMs,
+      };
+      results.push(entry);
+      console.log("[FCM] ✓ send OK", { ...logCtx, ...entry });
     } catch (err) {
-      const code = err?.code || err?.errorInfo?.code;
+      failure++;
+      const code = err?.code || err?.errorInfo?.code || "unknown";
+      failureCodes[code] = (failureCodes[code] || 0) + 1;
+      const tookMs = Date.now() - sendStartedAt;
+      const entry = {
+        ok: false,
+        tokenTail: maskToken(token),
+        code,
+        message: (err && err.message) || String(err),
+        details: err?.errorInfo || null,
+        tookMs,
+      };
+      results.push(entry);
+      console.warn("[FCM] ✗ send FAILED", { ...logCtx, ...entry });
+
       if (
         code === "messaging/registration-token-not-registered" ||
         code === "messaging/invalid-registration-token" ||
         code === "messaging/invalid-argument"
       ) {
-        await Device.updateMany(
+        const upd = await Device.updateMany(
           { pushNotificationToken: token },
           { isActive: false, pushNotificationToken: "" },
         );
+        console.warn("[FCM] Pruned stale token:", {
+          tokenTail: maskToken(token),
+          modified: upd?.modifiedCount,
+          code,
+        });
       }
-      console.warn(
-        "[FCM] send failed for token …",
-        (err && err.message) || err,
-      );
     }
   }
-  return { sent: success, skipped: false };
+
+  console.log("[FCM] Send summary:", {
+    ...logCtx,
+    tokens: valid.length,
+    success,
+    failure,
+    failureCodes,
+    totalMs: Date.now() - startedAt,
+  });
+
+  return {
+    sent: success,
+    failed: failure,
+    skipped: false,
+    tokens: valid.length,
+    failureCodes,
+    results,
+  };
 }
 
 module.exports = {
