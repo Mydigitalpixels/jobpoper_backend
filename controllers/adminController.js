@@ -369,11 +369,27 @@ const getVerificationRequests = asyncHandler(async (req, res) => {
 // @desc    Get pending business profile approval requests
 // @route   GET /api/admin/business-profiles/pending
 // @access  Private/Admin
+//
+// Despite the path name, this endpoint accepts an optional `?status=` query
+// parameter to filter by any status — pending (default, preserves legacy
+// behaviour), approved, or rejected. The admin UI uses status=approved to
+// power the "Approved" tab on the business-approvals screen.
 const getPendingBusinessProfileRequests = asyncHandler(async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit, 10) || 100, 200);
 
-  const profiles = await BusinessProfile.find({ status: "pending" })
-    .sort({ createdAt: -1 })
+  const ALLOWED_STATUSES = ["pending", "approved", "rejected"];
+  const status = ALLOWED_STATUSES.includes(req.query.status)
+    ? req.query.status
+    : "pending";
+
+  // For approved/rejected we want the most-recently-reviewed at the top, since
+  // `updatedAt` is bumped on review. Pending continues to sort by createdAt
+  // (oldest unreviewed bubbles up… actually descending, newest pending first,
+  // matching the previous behaviour).
+  const sortKey = status === "pending" ? { createdAt: -1 } : { updatedAt: -1 };
+
+  const profiles = await BusinessProfile.find({ status })
+    .sort(sortKey)
     .limit(limit)
     .populate("user", "phoneNumber profile.fullName")
     .populate("category", "name slug")
