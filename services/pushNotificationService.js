@@ -2,6 +2,7 @@ const path = require("path");
 const fs = require("fs");
 let admin = null;
 let _initialized = false;
+let _initSuccess = false;
 let _initErrorLogged = false;
 
 /**
@@ -23,7 +24,8 @@ function getAndroidChannelId(type) {
 }
 
 function initAdmin() {
-  if (_initialized) return admin;
+  if (_initialized && _initSuccess) return admin;
+  if (_initialized && !_initSuccess) { _initialized = false; }
   _initialized = true;
   try {
     admin = require("firebase-admin");
@@ -37,6 +39,7 @@ function initAdmin() {
     return null;
   }
   if (admin.apps.length) {
+    _initSuccess = true;
     return admin;
   }
   const jsonPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
@@ -60,6 +63,7 @@ function initAdmin() {
     const abs = path.resolve(jsonPath);
     const creds = require(abs);
     admin.initializeApp({ credential: admin.credential.cert(creds) });
+    _initSuccess = true;
   } else {
     if (!_initErrorLogged) {
       _initErrorLogged = true;
