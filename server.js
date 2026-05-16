@@ -39,6 +39,9 @@ app.use("/api/business-categories", require("./routes/businessCategories"));
 app.use("/business-categories", require("./routes/businessCategories"));
 app.use("/api/business-profiles", require("./routes/businessProfiles"));
 app.use("/business-profiles", require("./routes/businessProfiles"));
+const ordersRouter = require("./routes/orders");
+app.use("/api/orders", ordersRouter);
+app.use("/orders", ordersRouter);
 const devicesRouter = require("./routes/devices");
 app.use("/api/devices", devicesRouter);
 // Same routes without /api prefix (client baseURL is .../api so /auth, /devices resolve to host:port/auth, host:port/devices)
