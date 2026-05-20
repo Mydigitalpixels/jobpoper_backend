@@ -17,8 +17,8 @@ const mongoose = require('mongoose');
  *   - `businessOwner` is denormalized from `businessProfile.user` at create
  *     time so we can answer "give me my orders" without a join.
  *   - `customerName` / `customerPhone` / `customerLocation` are stored as
- *     plain strings (not refs) — the spec says they are editable at submit,
- *     so we must capture the exact value the customer typed.
+ *     snapshot values — the spec says they are editable at submit, so we must
+ *     capture the exact contact/location the customer selected.
  *   - `isRead` powers the header bell-style badge on the business side.
  */
 const orderSchema = new mongoose.Schema(
@@ -57,6 +57,30 @@ const orderSchema = new mongoose.Schema(
       type: String,
       trim: true,
       maxlength: [300, 'Location cannot be more than 300 characters'],
+      default: '',
+    },
+    customerLatitude: {
+      type: Number,
+      min: [-90, 'Latitude must be between -90 and 90'],
+      max: [90, 'Latitude must be between -90 and 90'],
+      default: null,
+    },
+    customerLongitude: {
+      type: Number,
+      min: [-180, 'Longitude must be between -180 and 180'],
+      max: [180, 'Longitude must be between -180 and 180'],
+      default: null,
+    },
+    locationName: {
+      type: String,
+      trim: true,
+      maxlength: [100, 'Location name cannot be more than 100 characters'],
+      default: '',
+    },
+    addressDetails: {
+      type: String,
+      trim: true,
+      maxlength: [300, 'Address details cannot be more than 300 characters'],
       default: '',
     },
     serviceDetail: {

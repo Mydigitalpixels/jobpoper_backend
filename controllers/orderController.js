@@ -17,11 +17,30 @@ const {
 //   businessProfileId (required) — ObjectId of the BusinessProfile being ordered from
 //   name              (required) — Customer name (auto-filled, editable on the client)
 //   phoneNumber       (required) — Customer phone (auto-filled, editable on the client)
-//   location          (optional) — Free-form location string
+//   location          (optional) — Customer full address string
+//   latitude          (optional) — Customer location latitude
+//   longitude         (optional) — Customer location longitude
 //   serviceDetail     (optional) — What service/product the customer wants
+const parseCoordinate = (value) => {
+  if (value === undefined || value === null || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : NaN;
+};
+
 const createOrder = asyncHandler(async (req, res) => {
-  const { businessProfileId, name, phoneNumber, location, serviceDetail } =
-    req.body || {};
+  const {
+    businessProfileId,
+    name,
+    phoneNumber,
+    location,
+    latitude,
+    longitude,
+    customerLatitude,
+    customerLongitude,
+    locationName,
+    addressDetails,
+    serviceDetail,
+  } = req.body || {};
 
   if (!businessProfileId) {
     return res
@@ -48,6 +67,32 @@ const createOrder = asyncHandler(async (req, res) => {
     return res.status(400).json({
       status: "error",
       message: "Phone number is not in a valid format",
+    });
+  }
+
+  const parsedLatitude = parseCoordinate(customerLatitude ?? latitude);
+  const parsedLongitude = parseCoordinate(customerLongitude ?? longitude);
+  const hasLatitude = parsedLatitude !== null;
+  const hasLongitude = parsedLongitude !== null;
+
+  if (Number.isNaN(parsedLatitude) || (hasLatitude && (parsedLatitude < -90 || parsedLatitude > 90))) {
+    return res.status(400).json({
+      status: "error",
+      message: "Latitude must be a valid number between -90 and 90",
+    });
+  }
+
+  if (Number.isNaN(parsedLongitude) || (hasLongitude && (parsedLongitude < -180 || parsedLongitude > 180))) {
+    return res.status(400).json({
+      status: "error",
+      message: "Longitude must be a valid number between -180 and 180",
+    });
+  }
+
+  if (hasLatitude !== hasLongitude) {
+    return res.status(400).json({
+      status: "error",
+      message: "Latitude and longitude must be provided together",
     });
   }
 
@@ -86,6 +131,10 @@ const createOrder = asyncHandler(async (req, res) => {
       customerName: String(name).trim(),
       customerPhone: String(phoneNumber).trim(),
       customerLocation: location ? String(location).trim() : "",
+      customerLatitude: hasLatitude ? parsedLatitude : null,
+      customerLongitude: hasLongitude ? parsedLongitude : null,
+      locationName: locationName ? String(locationName).trim() : "",
+      addressDetails: addressDetails ? String(addressDetails).trim() : "",
       serviceDetail: serviceDetail ? String(serviceDetail).trim() : "",
     });
 
