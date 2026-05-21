@@ -506,6 +506,10 @@ const submitVerificationDocuments = asyncHandler(async (req, res) => {
     });
   }
 
+  if (!user.verification) {
+    user.verification = {};
+  }
+
   user.verification.selfieImage = `verification/selfies/${selfieImage}`;
   user.verification.idPhotoImage = `verification/id-documents/${idPhotoImage}`;
   user.verification.status = 'under_review';

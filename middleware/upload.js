@@ -12,6 +12,9 @@ const ALLOWED_IMAGE_MIME_TYPES = new Set([
   'image/heif',
 ]);
 
+sharp.concurrency(Math.max(1, Math.min(2, sharp.concurrency())));
+sharp.cache({ files: 0, items: 64, memory: 64 });
+
 // Ensure directory exists
 function ensureDir(dirPath) {
   if (!fs.existsSync(dirPath)) {
@@ -64,6 +67,30 @@ function saveOriginalFile(buffer, destDir, generatedFileName, originalName) {
   ensureDir(destDir);
   fs.writeFileSync(fullPath, buffer);
   return fallbackFileName;
+}
+
+async function saveVerificationFile(file, prefix, destDir) {
+  let filename = generateFileName(prefix);
+
+  try {
+    await processAndSave(file.buffer, destDir, filename);
+    return filename;
+  } catch (error) {
+    try {
+      return saveOriginalFile(
+        file.buffer,
+        destDir,
+        filename,
+        file.originalname,
+      );
+    } catch (fallbackError) {
+      console.warn(
+        `Failed to save ${prefix} verification image:`,
+        fallbackError.message,
+      );
+      throw error;
+    }
+  }
 }
 
 // Profile image: single file under uploads/profiles
@@ -186,37 +213,19 @@ const uploadVerificationDocuments = [
       };
 
       if (files.selfie?.[0]) {
-        const selfieFile = files.selfie[0];
-        let selfieFilename = generateFileName('selfie');
-        const selfieDir = path.join(__dirname, '..', 'uploads', 'verification', 'selfies');
-        try {
-          await processAndSave(selfieFile.buffer, selfieDir, selfieFilename);
-        } catch (error) {
-          selfieFilename = saveOriginalFile(
-            selfieFile.buffer,
-            selfieDir,
-            selfieFilename,
-            selfieFile.originalname,
-          );
-        }
-        processed.selfie = selfieFilename;
+        processed.selfie = await saveVerificationFile(
+          files.selfie[0],
+          'selfie',
+          path.join(__dirname, '..', 'uploads', 'verification', 'selfies'),
+        );
       }
 
       if (files.photoId?.[0]) {
-        const idFile = files.photoId[0];
-        let idFilename = generateFileName('photo-id');
-        const idDir = path.join(__dirname, '..', 'uploads', 'verification', 'id-documents');
-        try {
-          await processAndSave(idFile.buffer, idDir, idFilename);
-        } catch (error) {
-          idFilename = saveOriginalFile(
-            idFile.buffer,
-            idDir,
-            idFilename,
-            idFile.originalname,
-          );
-        }
-        processed.photoId = idFilename;
+        processed.photoId = await saveVerificationFile(
+          files.photoId[0],
+          'photo-id',
+          path.join(__dirname, '..', 'uploads', 'verification', 'id-documents'),
+        );
       }
 
       req.processedVerificationFiles = processed;
