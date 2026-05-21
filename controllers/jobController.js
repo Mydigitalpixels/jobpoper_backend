@@ -543,7 +543,6 @@ const createJob = asyncHandler(async (req, res) => {
   // Validate required fields
   if (
     !title ||
-    !description ||
     !cost ||
     !locationObj ||
     !jobType ||
@@ -642,6 +641,11 @@ const createJob = asyncHandler(async (req, res) => {
     categoryId = categoryDoc._id;
   }
 
+  // Build voiceNote path from uploaded audio (if any)
+  const voiceNotePath = req.processedAudioFileName
+    ? `jobs/audio/${req.processedAudioFileName}`
+    : null;
+
   try {
     const job = await Job.create({
       title,
@@ -654,6 +658,7 @@ const createJob = asyncHandler(async (req, res) => {
       scheduledTime,
       responsePreference,
       attachments: uploadedAttachments,
+      voiceNote: voiceNotePath,
       postedBy: req.user._id,
       distanceKm: resolvedDistanceKm,
       category: categoryId,
@@ -1758,6 +1763,7 @@ const updateJob = asyncHandler(async (req, res) => {
     existingAttachments,
     distanceKm,
     category,
+    removeVoiceNote,
   } = req.body;
 
   try {
@@ -1971,6 +1977,13 @@ const updateJob = asyncHandler(async (req, res) => {
           message: "Attachments must be an array",
         });
       }
+    }
+
+    // Handle voiceNote: new upload takes priority, then removeVoiceNote flag clears it
+    if (req.processedAudioFileName) {
+      updateData.voiceNote = `jobs/audio/${req.processedAudioFileName}`;
+    } else if (removeVoiceNote === 'true' || removeVoiceNote === true) {
+      updateData.voiceNote = null;
     }
 
     // Always reset status to 'open' and isActive to true when job is updated

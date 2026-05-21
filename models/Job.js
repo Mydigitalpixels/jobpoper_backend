@@ -9,7 +9,7 @@ const jobSchema = new mongoose.Schema({
   },
   description: {
     type: String,
-    required: [true, 'Job description is required'],
+    required: false,
     trim: true,
     maxlength: [2000, 'Job description cannot be more than 2000 characters']
   },
@@ -112,6 +112,10 @@ const jobSchema = new mongoose.Schema({
       },
       message: 'Cannot have more than 5 attachments'
     }
+  },
+  voiceNote: {
+    type: String,
+    default: null,
   },
   distanceKm: {
     type: Number,

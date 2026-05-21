@@ -12,6 +12,17 @@ const ALLOWED_IMAGE_MIME_TYPES = new Set([
   'image/heif',
 ]);
 
+const ALLOWED_AUDIO_MIME_TYPES = new Set([
+  'audio/mpeg',
+  'audio/mp4',
+  'audio/m4a',
+  'audio/aac',
+  'audio/wav',
+  'audio/x-m4a',
+  'audio/x-wav',
+  'audio/3gpp',
+]);
+
 sharp.concurrency(Math.max(1, Math.min(2, sharp.concurrency())));
 sharp.cache({ files: 0, items: 64, memory: 64 });
 
@@ -236,9 +247,105 @@ const uploadVerificationDocuments = [
   }
 ];
 
+// Combined job files: images (attachments) + audio (voiceNote) in one multipart request
+const uploadJobFilesMulter = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024 }, // 8MB per file
+  fileFilter: (req, file, cb) => {
+    if (file.fieldname === 'attachments') {
+      if (ALLOWED_IMAGE_MIME_TYPES.has(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error('Only JPG, PNG, WEBP, HEIC, and HEIF image uploads are allowed for attachments'), false);
+      }
+    } else if (file.fieldname === 'voiceNote') {
+      if (ALLOWED_AUDIO_MIME_TYPES.has(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error('Only MP3, MP4, M4A, AAC, and WAV audio uploads are allowed for voice notes'), false);
+      }
+    } else {
+      cb(null, false);
+    }
+  },
+});
+
+const uploadJobFiles = [
+  uploadJobFilesMulter.fields([
+    { name: 'attachments', maxCount: 5 },
+    { name: 'voiceNote', maxCount: 1 },
+  ]),
+  async (req, res, next) => {
+    try {
+      const files = req.files || {};
+
+      // --- Process image attachments ---
+      const imageFiles = files['attachments'] || [];
+      if (imageFiles.length) {
+        const destDir = path.join(__dirname, '..', 'uploads', 'jobs');
+        const saved = [];
+        let errors = 0;
+        for (const file of imageFiles) {
+          let filename = generateFileName('job');
+          let success = false;
+          let fallbackPath = null;
+          try {
+            await processAndSave(file.buffer, destDir, filename);
+            success = true;
+          } catch (err) {
+            try {
+              filename = saveOriginalFile(file.buffer, destDir, filename, file.originalname);
+              fallbackPath = path.join(destDir, filename);
+              success = true;
+            } catch (fallbackErr) {
+              try { if (fallbackPath) fs.unlinkSync(fallbackPath); } catch (e) {}
+              console.warn('Failed to save fallback attachment:', fallbackErr.message);
+              errors++;
+            }
+          }
+          if (success) saved.push(filename);
+        }
+        req.processedFileNames = saved;
+        if (imageFiles.length && !saved.length) {
+          return res.status(400).json({ status: 'error', message: 'All attachments failed to process' });
+        }
+      } else {
+        req.processedFileNames = [];
+      }
+
+      // --- Process voice note ---
+      const audioFiles = files['voiceNote'] || [];
+      if (audioFiles.length) {
+        const audioFile = audioFiles[0];
+        const audioDestDir = path.join(__dirname, '..', 'uploads', 'jobs', 'audio');
+        ensureDir(audioDestDir);
+        const originalExt = path.extname(audioFile.originalname || '').toLowerCase() || '.m4a';
+        const audioFilename = `voice-${Date.now()}-${crypto.randomBytes(8).toString('hex')}${originalExt}`;
+        const audioFullPath = path.join(audioDestDir, audioFilename);
+        try {
+          fs.writeFileSync(audioFullPath, audioFile.buffer);
+          req.processedAudioFileName = audioFilename;
+        } catch (err) {
+          console.warn('Failed to save voice note:', err.message);
+          req.processedAudioFileName = null;
+        }
+      } else {
+        req.processedAudioFileName = null;
+      }
+
+      return next();
+    } catch (err) {
+      req.processedFileNames = [];
+      req.processedAudioFileName = null;
+      return next(err);
+    }
+  },
+];
+
 module.exports = {
   uploadProfileImage,
   uploadJobImages,
+  uploadJobFiles,
   uploadVerificationDocuments,
   uploadBusinessImages
 };
