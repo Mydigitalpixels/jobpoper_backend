@@ -49,6 +49,18 @@ const businessProfileSchema = new mongoose.Schema(
       trim: true,
       match: [/^\+?[1-9]\d{1,14}$/, 'Please enter a valid phone number'],
     },
+    latitude: {
+      type: Number,
+      min: [-90, 'Latitude must be between -90 and 90'],
+      max: [90, 'Latitude must be between -90 and 90'],
+      default: null,
+    },
+    longitude: {
+      type: Number,
+      min: [-180, 'Longitude must be between -180 and 180'],
+      max: [180, 'Longitude must be between -180 and 180'],
+      default: null,
+    },
     status: {
       type: String,
       required: [true, 'Status is required'],
@@ -102,6 +114,7 @@ const businessProfileSchema = new mongoose.Schema(
 
 businessProfileSchema.index({ user: 1, createdAt: -1 });
 businessProfileSchema.index({ category: 1, status: 1, isActive: 1 });
+businessProfileSchema.index({ status: 1, isActive: 1, latitude: 1, longitude: 1 });
 businessProfileSchema.index({ businessName: 'text', address: 'text' });
 
 // --- Validation hooks ------------------------------------------------------

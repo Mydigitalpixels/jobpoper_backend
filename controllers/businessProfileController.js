@@ -11,6 +11,73 @@ const MAX_IMAGES = 5;
 const buildImageUrl = (filename) => `/uploads/business-profiles/${filename}`;
 const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+const parseCoordinate = (value) => {
+  if (value === undefined || value === null || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : NaN;
+};
+
+const validateCoordinatePair = (latitude, longitude) => {
+  const parsedLatitude = parseCoordinate(latitude);
+  const parsedLongitude = parseCoordinate(longitude);
+  const hasLatitude = parsedLatitude !== null;
+  const hasLongitude = parsedLongitude !== null;
+
+  if (Number.isNaN(parsedLatitude) || (hasLatitude && (parsedLatitude < -90 || parsedLatitude > 90))) {
+    return { error: 'Latitude must be a valid number between -90 and 90' };
+  }
+
+  if (Number.isNaN(parsedLongitude) || (hasLongitude && (parsedLongitude < -180 || parsedLongitude > 180))) {
+    return { error: 'Longitude must be a valid number between -180 and 180' };
+  }
+
+  if (hasLatitude !== hasLongitude) {
+    return { error: 'Latitude and longitude must be provided together' };
+  }
+
+  return { latitude: parsedLatitude, longitude: parsedLongitude, hasCoordinates: hasLatitude && hasLongitude };
+};
+
+const getBusinessDistancePipeline = (userLat, userLng) => [
+  {
+    $addFields: {
+      distance: {
+        $let: {
+          vars: {
+            dLat: { $degreesToRadians: { $subtract: ['$latitude', userLat] } },
+            dLng: { $degreesToRadians: { $subtract: ['$longitude', userLng] } },
+            lat1: { $degreesToRadians: userLat },
+            lat2: { $degreesToRadians: '$latitude' },
+            radius: 6371,
+          },
+          in: {
+            $multiply: [
+              '$$radius',
+              2,
+              {
+                $asin: {
+                  $sqrt: {
+                    $add: [
+                      { $pow: [{ $sin: { $divide: ['$$dLat', 2] } }, 2] },
+                      {
+                        $multiply: [
+                          { $cos: '$$lat1' },
+                          { $cos: '$$lat2' },
+                          { $pow: [{ $sin: { $divide: ['$$dLng', 2] } }, 2] },
+                        ],
+                      },
+                    ],
+                  },
+                },
+              },
+            ],
+          },
+        },
+      },
+    },
+  },
+];
+
 const deleteBusinessImageFiles = async (images = []) => {
   await Promise.all(
     images.map(async (image) => {
@@ -65,6 +132,8 @@ const createBusinessProfile = asyncHandler(async (req, res) => {
     category,
     address,
     phoneNumber,
+    latitude,
+    longitude,
     primaryIndex,
   } = req.body;
 
@@ -73,6 +142,11 @@ const createBusinessProfile = asyncHandler(async (req, res) => {
       status: 'error',
       message: 'businessName, category, address, and phoneNumber are required',
     });
+  }
+
+  const coords = validateCoordinatePair(latitude, longitude);
+  if (coords.error) {
+    return res.status(400).json({ status: 'error', message: coords.error });
   }
 
   const fileNames = req.processedFileNames || [];
@@ -109,6 +183,8 @@ const createBusinessProfile = asyncHandler(async (req, res) => {
       category,
       address: String(address).trim(),
       phoneNumber: String(phoneNumber).trim(),
+      latitude: coords.hasCoordinates ? coords.latitude : null,
+      longitude: coords.hasCoordinates ? coords.longitude : null,
       status: 'pending',
       isActive: true,
       images: [placeholderId],
@@ -162,17 +238,18 @@ const createBusinessProfile = asyncHandler(async (req, res) => {
   });
 });
 
-// @desc    Public, paginated list of approved business profiles
-// @route   GET /api/business-profiles?page=1&limit=10&search=shop&category=<id>
+// @desc    Public, paginated list of approved business profiles near the selected location
+// @route   GET /api/business-profiles?page=1&limit=10&latitude=<lat>&longitude=<lng>&search=shop&category=<id>
 // @access  Private (any authenticated user)
 //
-// Powers the user-facing "Business" tab. Only returns profiles whose
-// status is "approved" and that are still active. Default page size is
-// 10 to match the tab's UI; the cap is 50 so misbehaving clients can't
+// Powers the user-facing "Business" tab. Only returns approved, active
+// profiles within 50km of the caller's selected location. Default page size
+// is 10 to match the tab's UI; the cap is 50 so misbehaving clients can't
 // pull the whole table at once.
 const listApprovedBusinessProfiles = asyncHandler(async (req, res) => {
   const DEFAULT_LIMIT = 10;
   const MAX_LIMIT = 50;
+  const RADIUS_KM = 50;
 
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const limitRaw = parseInt(req.query.limit, 10) || DEFAULT_LIMIT;
@@ -181,6 +258,18 @@ const listApprovedBusinessProfiles = asyncHandler(async (req, res) => {
 
   const search = String(req.query.search || '').trim();
   const category = String(req.query.category || '').trim();
+  const coords = validateCoordinatePair(req.query.latitude, req.query.longitude);
+
+  if (!coords.hasCoordinates) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Coordinates (latitude, longitude) are required',
+    });
+  }
+
+  if (coords.error) {
+    return res.status(400).json({ status: 'error', message: coords.error });
+  }
 
   if (category && !mongoose.isValidObjectId(category)) {
     return res.status(400).json({
@@ -189,30 +278,65 @@ const listApprovedBusinessProfiles = asyncHandler(async (req, res) => {
     });
   }
 
-  const filter = { status: 'approved', isActive: true };
+  const filter = {
+    status: 'approved',
+    isActive: true,
+    latitude: { $type: 'number' },
+    longitude: { $type: 'number' },
+  };
   if (search) {
     filter.businessName = { $regex: escapeRegex(search), $options: 'i' };
   }
   if (category) {
-    filter.category = category;
+    filter.category = new mongoose.Types.ObjectId(category);
   }
 
-  const [profiles, total] = await Promise.all([
-    BusinessProfile.find(filter)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .populate('category', 'name slug')
-      .populate('images'),
-    BusinessProfile.countDocuments(filter),
-  ]);
+  const pipeline = [
+    { $match: filter },
+    ...getBusinessDistancePipeline(coords.latitude, coords.longitude),
+    { $match: { distance: { $lte: RADIUS_KM } } },
+    { $sort: { createdAt: -1 } },
+    {
+      $facet: {
+        profiles: [
+          { $skip: skip },
+          { $limit: limit },
+          {
+            $lookup: {
+              from: 'business_categories',
+              localField: 'category',
+              foreignField: '_id',
+              as: 'category',
+            },
+          },
+          { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
+          {
+            $lookup: {
+              from: 'business_images',
+              localField: 'images',
+              foreignField: '_id',
+              as: 'images',
+            },
+          },
+        ],
+        totalCount: [{ $count: 'count' }],
+      },
+    },
+  ];
 
+  const result = await BusinessProfile.aggregate(pipeline);
+  const profiles = result[0]?.profiles ?? [];
+  const total = result[0]?.totalCount?.[0]?.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
   return res.status(200).json({
     status: 'success',
     data: {
       profiles,
+      location: req.query.location || '',
+      latitude: coords.latitude,
+      longitude: coords.longitude,
+      radiusKm: RADIUS_KM,
       pagination: {
         page,
         limit,
@@ -287,13 +411,28 @@ const updateBusinessProfile = asyncHandler(async (req, res) => {
     });
   }
 
-  const { businessName, category, address, phoneNumber, primaryIndex } =
-    req.body;
+  const {
+    businessName,
+    category,
+    address,
+    phoneNumber,
+    latitude,
+    longitude,
+    primaryIndex,
+  } = req.body;
 
   if (businessName != null) profile.businessName = String(businessName).trim();
   if (category != null) profile.category = category;
   if (address != null) profile.address = String(address).trim();
   if (phoneNumber != null) profile.phoneNumber = String(phoneNumber).trim();
+  if (latitude !== undefined || longitude !== undefined) {
+    const coords = validateCoordinatePair(latitude, longitude);
+    if (coords.error) {
+      return res.status(400).json({ status: 'error', message: coords.error });
+    }
+    profile.latitude = coords.hasCoordinates ? coords.latitude : null;
+    profile.longitude = coords.hasCoordinates ? coords.longitude : null;
+  }
 
   // Replace images only if the client sent new ones on this request.
   const newFileNames = req.processedFileNames || [];
