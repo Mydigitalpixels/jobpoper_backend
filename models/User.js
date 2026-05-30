@@ -56,9 +56,6 @@ const userSchema = new mongoose.Schema({
         type: Date
       }
     },
-    dateOfBirth: {
-      type: Date
-    },
     profileImage: {
       type: String
     },

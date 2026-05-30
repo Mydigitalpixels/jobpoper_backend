@@ -323,7 +323,7 @@ const checkPhoneExists = asyncHandler(async (req, res) => {
 // @route   PUT /api/auth/complete-profile
 // @access  Private
 const completeProfile = asyncHandler(async (req, res) => {
-  const { fullName, email, location, dateOfBirth, latitude, longitude } = req.body;
+  const { fullName, email, location, latitude, longitude } = req.body;
   const user = req.user;
 
   console.log("[PROFILE] completeProfile called", {
@@ -332,7 +332,6 @@ const completeProfile = asyncHandler(async (req, res) => {
     hasFullName: !!fullName,
     hasEmail: !!email,
     hasLocation: !!location,
-    hasDob: !!dateOfBirth,
   });
 
   // Validate required fields
@@ -364,7 +363,6 @@ const completeProfile = asyncHandler(async (req, res) => {
     // Update profile
     console.log("[PROFILE] Updating profile fields for user", user._id, {
       hasLocation: !!location,
-      hasDob: !!dateOfBirth,
       hasProfileImage: !!req.processedFileName,
     });
     user.profile.fullName = fullName;
@@ -379,7 +377,6 @@ const completeProfile = asyncHandler(async (req, res) => {
         user.profile.location = location;
       }
     }
-    user.profile.dateOfBirth = dateOfBirth || user.profile.dateOfBirth;
     // If a file was uploaded and processed, use that; otherwise keep existing value
     if (req.processedFileName) {
       user.profile.profileImage = `profiles/${req.processedFileName}`;
