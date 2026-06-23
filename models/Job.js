@@ -132,6 +132,22 @@ const jobSchema = new mongoose.Schema({
     ref: 'User',
     required: [true, 'Job must be posted by a user']
   },
+  postedOnBehalf: {
+    type: Boolean,
+    default: false,
+  },
+  externalContact: {
+    name: {
+      type: String,
+      trim: true,
+      maxlength: [100, 'Name cannot be more than 100 characters'],
+    },
+    phoneNumber: {
+      type: String,
+      trim: true,
+      maxlength: [20, 'Phone number cannot be more than 20 characters'],
+    },
+  },
   isActive: {
     type: Boolean,
     default: true
@@ -178,6 +194,9 @@ jobSchema.virtual('formattedScheduledDate').get(function() {
 
 // Virtual for contact info (phone number for manual contact)
 jobSchema.virtual('contactInfo').get(function() {
+  if (this.postedOnBehalf && this.externalContact?.phoneNumber) {
+    return this.externalContact.phoneNumber;
+  }
   return this.postedBy ? this.postedBy.phoneNumber : null;
 });
 // Virtual to get location based on job type

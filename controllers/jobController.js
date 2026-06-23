@@ -26,6 +26,45 @@ const resolveCategoryFilter = async (rawCategory) => {
   return doc ? doc._id : null;
 };
 
+const PHONE_REGEX = /^\+?[1-9]\d{1,14}$/;
+
+/**
+ * Parse and validate "post on behalf of another person" fields from request body.
+ * Returns { postedOnBehalf, externalContact } or { error: string }.
+ */
+const parsePostedOnBehalfFields = (body) => {
+  const postedOnBehalf =
+    body.postedOnBehalf === true || body.postedOnBehalf === "true";
+
+  if (!postedOnBehalf) {
+    return {
+      postedOnBehalf: false,
+      externalContact: undefined,
+    };
+  }
+
+  const name = String(body.externalContactName || "").trim();
+  const rawPhone = String(body.externalContactPhone || "").trim();
+  const phoneNumber = rawPhone.replace(/[\s\-()]/g, "");
+
+  if (!name) {
+    return { error: "Name is required when posting for another person" };
+  }
+  if (!phoneNumber) {
+    return {
+      error: "Phone number is required when posting for another person",
+    };
+  }
+  if (!PHONE_REGEX.test(phoneNumber)) {
+    return { error: "Please enter a valid phone number for the job seeker" };
+  }
+
+  return {
+    postedOnBehalf: true,
+    externalContact: { name, phoneNumber },
+  };
+};
+
 /** Compute haversine distance in kilometers between two lat/lng points. */
 const haversineKm = (lat1, lon1, lat2, lon2) => {
   if (
@@ -646,8 +685,16 @@ const createJob = asyncHandler(async (req, res) => {
     ? `jobs/audio/${req.processedAudioFileName}`
     : null;
 
+  const onBehalfFields = parsePostedOnBehalfFields(req.body);
+  if (onBehalfFields.error) {
+    return res.status(400).json({
+      status: "error",
+      message: onBehalfFields.error,
+    });
+  }
+
   try {
-    const job = await Job.create({
+    const jobPayload = {
       title,
       description,
       cost,
@@ -662,7 +709,13 @@ const createJob = asyncHandler(async (req, res) => {
       postedBy: req.user._id,
       distanceKm: resolvedDistanceKm,
       category: categoryId,
-    });
+      postedOnBehalf: onBehalfFields.postedOnBehalf,
+    };
+    if (onBehalfFields.postedOnBehalf) {
+      jobPayload.externalContact = onBehalfFields.externalContact;
+    }
+
+    const job = await Job.create(jobPayload);
 
     // Populate the postedBy field
     await job.populate(
@@ -1986,6 +2039,25 @@ const updateJob = asyncHandler(async (req, res) => {
       updateData.voiceNote = null;
     }
 
+    let onBehalfUpdate = null;
+    if (
+      req.body.postedOnBehalf !== undefined ||
+      req.body.externalContactName !== undefined ||
+      req.body.externalContactPhone !== undefined
+    ) {
+      onBehalfUpdate = parsePostedOnBehalfFields(req.body);
+      if (onBehalfUpdate.error) {
+        return res.status(400).json({
+          status: "error",
+          message: onBehalfUpdate.error,
+        });
+      }
+      updateData.postedOnBehalf = onBehalfUpdate.postedOnBehalf;
+      if (onBehalfUpdate.postedOnBehalf) {
+        updateData.externalContact = onBehalfUpdate.externalContact;
+      }
+    }
+
     // Always reset status to 'open' and isActive to true when job is updated
     updateData.status = "open";
     updateData.isActive = true;
@@ -2001,6 +2073,9 @@ const updateJob = asyncHandler(async (req, res) => {
 
     // Apply updates on the document so that custom validators and pre-save hooks run correctly
     Object.assign(job, updateData);
+    if (onBehalfUpdate && !onBehalfUpdate.postedOnBehalf) {
+      job.set("externalContact", undefined);
+    }
     const updatedJob = await job.save();
     await updatedJob.populate(
       "postedBy",

@@ -59,6 +59,13 @@ const buildAdminJob = (job) => ({
   interestedCount: Array.isArray(job.interestedUsers)
     ? job.interestedUsers.length
     : 0,
+  postedOnBehalf: !!job.postedOnBehalf,
+  externalContact: job.postedOnBehalf
+    ? {
+        name: job.externalContact?.name || "",
+        phoneNumber: job.externalContact?.phoneNumber || "",
+      }
+    : null,
   createdAt: job.createdAt,
 });
 
