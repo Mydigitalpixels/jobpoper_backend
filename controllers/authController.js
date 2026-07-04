@@ -18,6 +18,8 @@ const buildUserResponse = (user) => ({
   profile: user.profile,
   verification: user.verification,
   vehiclePreference: user.vehiclePreference,
+  isProfessional: user.isProfessional || false,
+  professionalProfile: user.professionalProfile || null,
   role: user.role,
   lastLogin: user.lastLogin
 });
@@ -382,6 +384,12 @@ const completeProfile = asyncHandler(async (req, res) => {
       user.profile.profileImage = `profiles/${req.processedFileName}`;
     }
     user.profile.isProfileComplete = true;
+
+    // Save isProfessional flag if provided
+    const { isProfessional } = req.body;
+    if (isProfessional !== undefined) {
+      user.isProfessional = isProfessional === true || isProfessional === 'true';
+    }
 
     console.log("[PROFILE] Saving updated profile to DB for user", user._id);
     await user.save();
@@ -1006,6 +1014,81 @@ const deleteAccount = asyncHandler(async (req, res) => {
   }
 });
 
+// @desc    Update professional profile (categories, work images, bio, experience)
+// @route   PUT /api/auth/professional-profile
+// @access  Private
+const updateProfessionalProfile = asyncHandler(async (req, res) => {
+  const user = req.user;
+  const { serviceCategories, bio, yearsOfExperience, existingWorkImages } = req.body;
+
+  try {
+    // Parse serviceCategories (may come as JSON string from FormData)
+    let parsedCategories = [];
+    if (serviceCategories) {
+      try {
+        parsedCategories = typeof serviceCategories === 'string'
+          ? JSON.parse(serviceCategories)
+          : serviceCategories;
+      } catch {
+        parsedCategories = Array.isArray(serviceCategories) ? serviceCategories : [serviceCategories];
+      }
+      if (parsedCategories.length > 5) {
+        return res.status(400).json({ status: 'error', message: 'Maximum 5 service categories allowed' });
+      }
+    }
+
+    // Parse existingWorkImages (images already saved, coming back from client)
+    let keptImages = [];
+    if (existingWorkImages) {
+      try {
+        keptImages = typeof existingWorkImages === 'string'
+          ? JSON.parse(existingWorkImages)
+          : existingWorkImages;
+      } catch {
+        keptImages = Array.isArray(existingWorkImages) ? existingWorkImages : [existingWorkImages];
+      }
+    }
+
+    // New uploaded images
+    const newImagePaths = (req.processedFileNames || []).map(f => `work-images/${f}`);
+
+    const allWorkImages = [...keptImages, ...newImagePaths];
+    if (allWorkImages.length > 10) {
+      return res.status(400).json({ status: 'error', message: 'Maximum 10 work images allowed' });
+    }
+
+    // Update professionalProfile fields
+    if (!user.professionalProfile) user.professionalProfile = {};
+    if (parsedCategories.length > 0) user.professionalProfile.serviceCategories = parsedCategories;
+    user.professionalProfile.workImages = allWorkImages;
+    if (bio !== undefined) user.professionalProfile.bio = bio;
+    if (yearsOfExperience !== undefined && yearsOfExperience !== '') {
+      user.professionalProfile.yearsOfExperience = Number(yearsOfExperience);
+    }
+
+    // Mark as professional when they save this info
+    user.isProfessional = true;
+
+    user.markModified('professionalProfile');
+    await user.save();
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Professional profile updated successfully',
+      data: {
+        user: buildUserResponse(user)
+      }
+    });
+  } catch (error) {
+    console.error('[PROFESSIONAL_PROFILE] Error updating professional profile', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to update professional profile',
+      error: error.message
+    });
+  }
+});
+
 module.exports = {
   sendPhoneVerification,
   resendPhoneVerification,
@@ -1026,5 +1109,6 @@ module.exports = {
   resetPin,
   deleteAccount,
   getVehiclePreference,
-  updateVehiclePreference
+  updateVehiclePreference,
+  updateProfessionalProfile
 };

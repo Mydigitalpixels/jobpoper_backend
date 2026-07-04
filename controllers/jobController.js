@@ -1713,10 +1713,15 @@ const getJobById = asyncHandler(async (req, res) => {
         "postedBy",
         "phoneNumber profile.fullName profile.email profile.location profile.profileImage",
       )
-      .populate(
-        "interestedUsers.user",
-        "profile.fullName profile.email phoneNumber profile.profileImage vehiclePreference",
-      )
+      .populate({
+        path: "interestedUsers.user",
+        select: "profile.fullName profile.email phoneNumber profile.profileImage vehiclePreference isProfessional professionalProfile",
+        populate: {
+          path: "professionalProfile.serviceCategories",
+          model: "ServiceCategory",
+          select: "_id name slug icon",
+        },
+      })
       .populate("category", "_id name slug icon");
 
     if (!job) {

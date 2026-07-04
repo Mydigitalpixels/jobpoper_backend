@@ -172,6 +172,37 @@ class TwilioService {
       const normalizedPhone = (phoneNumber || "").trim();
       const TEST_PHONE_NUMBER = "+923204099356";
 
+      // ── Universal dev/test bypass ──────────────────────────────────────────
+      // In non-production environments, accept "000000" for ANY number so
+      // developers can test the full signup flow without a real SIM card.
+      if (
+        process.env.NODE_ENV !== "production" &&
+        enteredCode === "000000"
+      ) {
+        console.log(`🔐 Dev bypass: accepting 000000 for ${phoneNumber}`);
+
+        // Find or create a verification record and mark it verified
+        let record = await PhoneVerification.findOne({
+          phoneNumber,
+          isVerified: false,
+        }).sort({ createdAt: -1 });
+
+        if (record) {
+          await record.markAsVerified();
+        } else {
+          record = new PhoneVerification({
+            phoneNumber,
+            verificationCode: "000000",
+            twilioSid: "dev-bypass",
+            isVerified: true,
+          });
+          await record.save();
+        }
+
+        return { success: true, message: "Phone number verified successfully" };
+      }
+      // ──────────────────────────────────────────────────────────────────────
+
       // Special test phone/code override: always accept 000000 for this number
       if (normalizedPhone === TEST_PHONE_NUMBER && enteredCode === "000000") {
         const latestPending = await PhoneVerification.findOne({

@@ -342,10 +342,53 @@ const uploadJobFiles = [
   },
 ];
 
+// Work images for professional profile: up to 10 files under uploads/work-images
+const uploadWorkImages = [
+  upload.array('workImages', 10),
+  async (req, res, next) => {
+    try {
+      if (!req.files || !req.files.length) {
+        req.processedFileNames = [];
+        return next();
+      }
+      const destDir = path.join(__dirname, '..', 'uploads', 'work-images');
+      const saved = [];
+      for (const file of req.files) {
+        let filename = generateFileName('work');
+        let success = false;
+        let fallbackPath = null;
+        try {
+          await processAndSave(file.buffer, destDir, filename);
+          success = true;
+        } catch (err) {
+          try {
+            filename = saveOriginalFile(file.buffer, destDir, filename, file.originalname);
+            fallbackPath = path.join(destDir, filename);
+            success = true;
+          } catch (fallbackErr) {
+            try { if (fallbackPath) fs.unlinkSync(fallbackPath); } catch (e) {}
+            console.warn('Failed to save work image:', fallbackErr.message);
+          }
+        }
+        if (success) saved.push(filename);
+      }
+      req.processedFileNames = saved;
+      if (req.files.length && !saved.length) {
+        return res.status(400).json({ status: 'error', message: 'All work images failed to process' });
+      }
+      return next();
+    } catch (err) {
+      req.processedFileNames = [];
+      return next(err);
+    }
+  }
+];
+
 module.exports = {
   uploadProfileImage,
   uploadJobImages,
   uploadJobFiles,
   uploadVerificationDocuments,
-  uploadBusinessImages
+  uploadBusinessImages,
+  uploadWorkImages
 };

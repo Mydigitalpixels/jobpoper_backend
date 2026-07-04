@@ -5,7 +5,8 @@ const phoneVerificationSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Phone number is required'],
     trim: true,
-    match: [/^\+?[1-9]\d{1,14}$/, 'Please enter a valid phone number']
+    // Allow any format (local e.g. 03001234567 or international +923001234567)
+    // The User model enforces strict E.164 format at registration
   },
   verificationCode: {
     type: String,

@@ -20,10 +20,11 @@ const {
   getVerificationRequests,
   reviewVerificationRequest,
   getVehiclePreference,
-  updateVehiclePreference
+  updateVehiclePreference,
+  updateProfessionalProfile
 } = require('../controllers/authController');
 const { protect, authorize } = require('../middleware/auth');
-const { uploadProfileImage, uploadVerificationDocuments } = require('../middleware/upload');
+const { uploadProfileImage, uploadVerificationDocuments, uploadWorkImages } = require('../middleware/upload');
 
 // Public routes
 router.post('/send-verification', sendPhoneVerification);
@@ -48,6 +49,7 @@ router.put('/verification-documents', uploadVerificationDocuments, submitVerific
 router.put('/change-pin', changePin);
 router.get('/vehicle-preference', getVehiclePreference);
 router.put('/vehicle-preference', updateVehiclePreference);
+router.put('/professional-profile', uploadWorkImages, updateProfessionalProfile);
 router.delete('/delete-account', deleteAccount);
 router.get('/verification-requests', authorize('admin'), getVerificationRequests);
 router.put('/verification-requests/:userId/review', authorize('admin'), reviewVerificationRequest);

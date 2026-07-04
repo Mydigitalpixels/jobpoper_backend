@@ -7,7 +7,8 @@ const userSchema = new mongoose.Schema({
     required: [true, 'Phone number is required'],
     unique: true,
     trim: true,
-    match: [/^\+?[1-9]\d{1,14}$/, 'Please enter a valid phone number']
+    // Allow local format (e.g. 03001234567) and international format (e.g. +923001234567)
+    match: [/^\+?\d{7,15}$/, 'Please enter a valid phone number']
   },
   isPhoneVerified: {
     type: Boolean,
@@ -116,6 +117,35 @@ const userSchema = new mongoose.Schema({
     },
     updatedAt: {
       type: Date,
+      default: null
+    }
+  },
+  isProfessional: {
+    type: Boolean,
+    default: false
+  },
+  professionalProfile: {
+    serviceCategories: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'ServiceCategory'
+    }],
+    workImages: {
+      type: [String],
+      default: [],
+      validate: {
+        validator: function(v) { return v.length <= 10; },
+        message: 'Cannot have more than 10 work images'
+      }
+    },
+    bio: {
+      type: String,
+      trim: true,
+      maxlength: [500, 'Bio cannot be more than 500 characters'],
+      default: ''
+    },
+    yearsOfExperience: {
+      type: Number,
+      min: [0, 'Years of experience cannot be negative'],
       default: null
     }
   },
