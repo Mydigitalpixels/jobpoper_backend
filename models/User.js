@@ -120,6 +120,20 @@ const userSchema = new mongoose.Schema({
       default: null
     }
   },
+  workerId: {
+    type: String,
+    unique: true,
+    sparse: true,
+    uppercase: true,
+    trim: true,
+    minlength: 5,
+    maxlength: 5,
+    default: null
+  },
+  rating: {
+    average: { type: Number, default: 0, min: 0, max: 5 },
+    count: { type: Number, default: 0, min: 0 }
+  },
   isProfessional: {
     type: Boolean,
     default: false

@@ -4,10 +4,12 @@ const Job = require("../models/Job");
 const Location = require("../models/Location");
 const Notification = require("../models/Notification");
 const User = require("../models/User");
+const Review = require("../models/Review");
 const Device = require("../models/Device");
 const {
   sendPushToUserForNotification,
 } = require("../services/pushNotificationService");
+const { generateUniqueJobPin } = require("../utils/generateUniqueId");
 
 /**
  * Resolve a category query param (ObjectId hex string OR slug) to a Mongo ObjectId.
@@ -694,6 +696,9 @@ const createJob = asyncHandler(async (req, res) => {
   }
 
   try {
+    // Generate a unique Job PIN for this job
+    const jobPin = await generateUniqueJobPin(Job);
+
     const jobPayload = {
       title,
       description,
@@ -710,6 +715,7 @@ const createJob = asyncHandler(async (req, res) => {
       distanceKm: resolvedDistanceKm,
       category: categoryId,
       postedOnBehalf: onBehalfFields.postedOnBehalf,
+      jobPin,
     };
     if (onBehalfFields.postedOnBehalf) {
       jobPayload.externalContact = onBehalfFields.externalContact;
@@ -2153,11 +2159,11 @@ const updateJobStatus = asyncHandler(async (req, res) => {
   const { status } = req.body;
 
   // Validate status
-  const validStatuses = ["open", "completed", "cancelled"];
+  const validStatuses = ["open", "job_started", "completed", "cancelled"];
   if (!validStatuses.includes(status)) {
     return res.status(400).json({
       status: "error",
-      message: "Invalid status. Must be one of: open, completed, cancelled",
+      message: "Invalid status. Must be one of: open, job_started, completed, cancelled",
     });
   }
 
@@ -2304,6 +2310,253 @@ const expireOldJobs = asyncHandler(async (req, res) => {
   }
 });
 
+// ─── Worker Verification & Job Lifecycle ────────────────────────────────────
+
+// @desc    Look up a professional by their Worker ID
+// @route   GET /api/workers/lookup/:workerId
+// @access  Private
+const lookupWorker = asyncHandler(async (req, res) => {
+  const { workerId } = req.params;
+  if (!workerId || workerId.length !== 5) {
+    return res.status(400).json({ status: "error", message: "Worker ID must be 5 characters" });
+  }
+
+  const worker = await User.findOne({
+    workerId: workerId.toUpperCase(),
+    isProfessional: true,
+  })
+    .select("profile.fullName profile.profileImage workerId rating isProfessional isVerified verification professionalProfile")
+    .populate("professionalProfile.serviceCategories", "_id name slug icon");
+
+  if (!worker) {
+    return res.status(404).json({
+      status: "error",
+      message: "No registered professional found with this Worker ID",
+    });
+  }
+
+  res.status(200).json({
+    status: "success",
+    data: {
+      worker: {
+        _id: worker._id,
+        fullName: worker.profile?.fullName,
+        profileImage: worker.profile?.profileImage,
+        workerId: worker.workerId,
+        rating: worker.rating,
+        isAppVerified: worker.verification?.status === "approved",
+        serviceCategories: worker.professionalProfile?.serviceCategories || [],
+        bio: worker.professionalProfile?.bio,
+        yearsOfExperience: worker.professionalProfile?.yearsOfExperience,
+      },
+    },
+  });
+});
+
+// @desc    Customer confirms worker and starts the job
+// @route   POST /api/jobs/:id/start
+// @access  Private (job owner)
+const startJob = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { workerId } = req.body; // workerId = User._id of the assigned worker
+
+  const job = await Job.findById(id);
+  if (!job) return res.status(404).json({ status: "error", message: "Job not found" });
+  if (job.postedBy.toString() !== req.user._id.toString()) {
+    return res.status(403).json({ status: "error", message: "Not authorized" });
+  }
+  if (job.status !== "open") {
+    return res.status(400).json({ status: "error", message: `Cannot start a job with status: ${job.status}` });
+  }
+  if (!workerId) {
+    return res.status(400).json({ status: "error", message: "Worker ID (user _id) is required" });
+  }
+
+  job.status = "job_started";
+  job.assignedWorker = workerId;
+  job.startedAt = new Date();
+  await job.save();
+
+  // Notify the assigned worker
+  try {
+    const notif = await Notification.create({
+      recipient: workerId,
+      type: "job_started",
+      title: "Job Started!",
+      message: `The customer has confirmed you for: ${job.title}. Head over to complete the job!`,
+      relatedEntityType: "Job",
+      relatedEntityId: job._id,
+      navigationIdentifier: `job:${job._id}`,
+      isRead: false,
+    });
+    sendPushToUserForNotification(notif.recipient, notif, Device).catch(() => {});
+  } catch (_) {}
+
+  res.status(200).json({
+    status: "success",
+    message: "Job started successfully",
+    data: { jobId: job._id, status: job.status, startedAt: job.startedAt },
+  });
+});
+
+// @desc    Worker enters Job PIN to mark job as completed
+// @route   POST /api/jobs/:id/complete
+// @access  Private (assigned worker)
+const completeJob = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { jobPin } = req.body;
+
+  const job = await Job.findById(id);
+  if (!job) return res.status(404).json({ status: "error", message: "Job not found" });
+  if (job.status !== "job_started") {
+    return res.status(400).json({ status: "error", message: "Job is not in progress" });
+  }
+  if (!job.assignedWorker || job.assignedWorker.toString() !== req.user._id.toString()) {
+    return res.status(403).json({ status: "error", message: "You are not the assigned worker for this job" });
+  }
+
+  // Rate-limit: max 5 wrong attempts
+  if (job.pinAttempts >= 5) {
+    return res.status(429).json({ status: "error", message: "Too many incorrect PIN attempts. Contact the customer." });
+  }
+
+  if (!jobPin || jobPin.toUpperCase() !== job.jobPin) {
+    job.pinAttempts = (job.pinAttempts || 0) + 1;
+    await job.save();
+    const remaining = 5 - job.pinAttempts;
+    return res.status(400).json({
+      status: "error",
+      message: `Incorrect Job PIN. ${remaining} attempt${remaining !== 1 ? "s" : ""} remaining.`,
+    });
+  }
+
+  // PIN correct — mark completed
+  job.status = "completed";
+  job.completedAt = new Date();
+  await job.save();
+
+  // Notify the job owner to leave a review
+  try {
+    const notif = await Notification.create({
+      recipient: job.postedBy,
+      type: "job_completed",
+      title: "Job Completed!",
+      message: `Your job "${job.title}" has been completed. Please leave a review!`,
+      relatedEntityType: "Job",
+      relatedEntityId: job._id,
+      navigationIdentifier: `job:${job._id}`,
+      isRead: false,
+    });
+    sendPushToUserForNotification(notif.recipient, notif, Device).catch(() => {});
+  } catch (_) {}
+
+  res.status(200).json({
+    status: "success",
+    message: "Job completed successfully!",
+    data: { jobId: job._id, status: job.status, completedAt: job.completedAt },
+  });
+});
+
+// @desc    Customer submits a review for the worker after job completion
+// @route   POST /api/jobs/:id/review
+// @access  Private (job owner)
+const submitReview = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { rating, comment } = req.body;
+
+  const job = await Job.findById(id).populate("assignedWorker", "_id rating");
+  if (!job) return res.status(404).json({ status: "error", message: "Job not found" });
+  if (job.postedBy.toString() !== req.user._id.toString()) {
+    return res.status(403).json({ status: "error", message: "Not authorized" });
+  }
+  if (job.status !== "completed") {
+    return res.status(400).json({ status: "error", message: "Job must be completed before submitting a review" });
+  }
+  if (job.isReviewed) {
+    return res.status(400).json({ status: "error", message: "You have already submitted a review for this job" });
+  }
+  if (!job.assignedWorker) {
+    return res.status(400).json({ status: "error", message: "No assigned worker found for this job" });
+  }
+
+  const ratingNum = Number(rating);
+  if (!ratingNum || ratingNum < 1 || ratingNum > 5) {
+    return res.status(400).json({ status: "error", message: "Rating must be between 1 and 5" });
+  }
+
+  // Create review
+  await Review.create({
+    jobId: id,
+    reviewerId: req.user._id,
+    workerId: job.assignedWorker._id,
+    rating: ratingNum,
+    comment: comment ? String(comment).trim() : "",
+  });
+
+  // Update worker's rating average and count atomically
+  const worker = await User.findById(job.assignedWorker._id);
+  if (worker) {
+    const oldCount = worker.rating?.count || 0;
+    const oldAvg = worker.rating?.average || 0;
+    const newCount = oldCount + 1;
+    const newAvg = Math.round(((oldAvg * oldCount + ratingNum) / newCount) * 10) / 10;
+    worker.rating = { average: newAvg, count: newCount };
+    await worker.save();
+  }
+
+  // Mark job as reviewed
+  job.isReviewed = true;
+  await job.save();
+
+  res.status(201).json({
+    status: "success",
+    message: "Review submitted successfully. Thank you!",
+  });
+});
+
+// @desc    Get paginated reviews for a worker
+// @route   GET /api/workers/:userId/reviews
+// @access  Public
+const getWorkerReviews = asyncHandler(async (req, res) => {
+  const { userId } = req.params;
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const skip = (page - 1) * limit;
+
+  const worker = await User.findById(userId).select("profile.fullName workerId rating");
+  if (!worker) return res.status(404).json({ status: "error", message: "Worker not found" });
+
+  const reviews = await Review.find({ workerId: userId })
+    .populate("reviewerId", "profile.fullName profile.profileImage")
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit);
+
+  const total = await Review.countDocuments({ workerId: userId });
+
+  res.status(200).json({
+    status: "success",
+    data: {
+      worker: {
+        _id: worker._id,
+        fullName: worker.profile?.fullName,
+        workerId: worker.workerId,
+        rating: worker.rating,
+      },
+      reviews,
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(total / limit),
+        totalReviews: total,
+        hasNextPage: page < Math.ceil(total / limit),
+        hasPrevPage: page > 1,
+      },
+    },
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+
 module.exports = {
   createJob,
   getAllJobs,
@@ -2319,4 +2572,9 @@ module.exports = {
   updateJobStatus,
   showInterestInJob,
   expireOldJobs,
+  lookupWorker,
+  startJob,
+  completeJob,
+  submitReview,
+  getWorkerReviews,
 };

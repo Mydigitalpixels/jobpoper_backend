@@ -10,6 +10,8 @@ const TwilioService = require('../services/twilioService');
 const { sendPushToUserForNotification } = require('../services/pushNotificationService');
 const { generateToken } = require('../middleware/auth');
 
+const { generateUniqueWorkerId } = require('../utils/generateUniqueId');
+
 const buildUserResponse = (user) => ({
   id: user._id,
   phoneNumber: user.phoneNumber,
@@ -18,6 +20,8 @@ const buildUserResponse = (user) => ({
   profile: user.profile,
   verification: user.verification,
   vehiclePreference: user.vehiclePreference,
+  workerId: user.workerId || null,
+  rating: user.rating || { average: 0, count: 0 },
   isProfessional: user.isProfessional || false,
   professionalProfile: user.professionalProfile || null,
   role: user.role,
@@ -1068,6 +1072,11 @@ const updateProfessionalProfile = asyncHandler(async (req, res) => {
 
     // Mark as professional when they save this info
     user.isProfessional = true;
+
+    // Auto-assign a unique Worker ID if this professional doesn't have one yet
+    if (!user.workerId) {
+      user.workerId = await generateUniqueWorkerId(User);
+    }
 
     user.markModified('professionalProfile');
     await user.save();

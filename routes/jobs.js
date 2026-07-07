@@ -16,7 +16,12 @@ const {
   deleteJob,
   updateJobStatus,
   showInterestInJob,
-  expireOldJobs
+  expireOldJobs,
+  lookupWorker,
+  startJob,
+  completeJob,
+  submitReview,
+  getWorkerReviews,
 } = require('../controllers/jobController');
 
 // Public routes
@@ -28,6 +33,12 @@ router.get('/search/normal', optionalProtect, searchNormalJobs);
 // Protect only these routes inline so they can appear before :id and avoid conflicts
 router.get('/my-interests', protect, getMyInterestedJobs);
 router.get('/my-jobs', protect, getMyJobs);
+
+// Worker lookup (by workerId string) — public, no auth required
+router.get('/workers/lookup/:workerId', lookupWorker);
+// Worker reviews — public
+router.get('/workers/:userId/reviews', getWorkerReviews);
+
 router.get('/:id', getJobById);
 
 // Protected routes (require authentication)
@@ -36,6 +47,9 @@ router.use(protect);
 router.post('/', uploadJobFiles, createJob);
 router.post('/:id/interest', showInterestInJob);
 router.post('/expire-old', expireOldJobs);
+router.post('/:id/start', startJob);
+router.post('/:id/complete', completeJob);
+router.post('/:id/review', submitReview);
 router.put('/:id', uploadJobFiles, updateJob);
 router.delete('/:id', deleteJob);
 router.put('/:id/status', updateJobStatus);

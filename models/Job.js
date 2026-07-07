@@ -122,10 +122,33 @@ const jobSchema = new mongoose.Schema({
     min: [0, 'Distance cannot be negative'],
     default: null
   },
+  jobPin: {
+    type: String,
+    uppercase: true,
+    trim: true,
+    default: null
+  },
   status: {
     type: String,
-    enum: ['open', 'completed', 'cancelled'],
+    enum: ['open', 'job_started', 'completed', 'cancelled'],
     default: 'open'
+  },
+  assignedWorker: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  startedAt: {
+    type: Date,
+    default: null
+  },
+  pinAttempts: {
+    type: Number,
+    default: 0
+  },
+  isReviewed: {
+    type: Boolean,
+    default: false
   },
   postedBy: {
     type: mongoose.Schema.Types.ObjectId,
