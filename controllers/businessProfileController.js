@@ -243,13 +243,13 @@ const createBusinessProfile = asyncHandler(async (req, res) => {
 // @access  Private (any authenticated user)
 //
 // Powers the user-facing "Business" tab. Only returns approved, active
-// profiles within 50km of the caller's selected location. Default page size
+// profiles within 25km of the caller's selected location. Default page size
 // is 10 to match the tab's UI; the cap is 50 so misbehaving clients can't
 // pull the whole table at once.
 const listApprovedBusinessProfiles = asyncHandler(async (req, res) => {
   const DEFAULT_LIMIT = 10;
   const MAX_LIMIT = 50;
-  const RADIUS_KM = 50;
+  const RADIUS_KM = 25;
 
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const limitRaw = parseInt(req.query.limit, 10) || DEFAULT_LIMIT;
