@@ -581,20 +581,55 @@ const createJob = asyncHandler(async (req, res) => {
     }
   }
 
-  // Validate required fields
-  if (
-    !title ||
-    !cost ||
-    !locationObj ||
-    !jobType ||
-    !urgency ||
-    !scheduledDate ||
-    !scheduledTime ||
-    !responsePreference
-  ) {
+  // Validate required fields — collect every missing field so the client
+  // can surface a specific, actionable message instead of a generic one.
+  const requiredFieldLabels = {
+    title: "Job title",
+    cost: "Cost/budget",
+    locationObj: "Location",
+    jobType: "Job type",
+    urgency: "Urgency",
+    scheduledDate: "Scheduled date",
+    scheduledTime: "Scheduled time",
+    responsePreference: "Response preference",
+  };
+  const providedValues = {
+    title,
+    cost,
+    locationObj,
+    jobType,
+    urgency,
+    scheduledDate,
+    scheduledTime,
+    responsePreference,
+  };
+  const missingFields = Object.keys(requiredFieldLabels).filter(
+    (key) => !providedValues[key],
+  );
+  if (missingFields.length) {
+    const missingLabels = missingFields.map((key) => requiredFieldLabels[key]);
     return res.status(400).json({
       status: "error",
-      message: "All required fields must be provided",
+      message: `Missing required field(s): ${missingLabels.join(", ")}`,
+      missingFields: missingLabels,
+    });
+  }
+
+  // Validate jobType
+  const validJobTypes = ["Pickup", "OnSite"];
+  if (!validJobTypes.includes(jobType)) {
+    return res.status(400).json({
+      status: "error",
+      message: "Invalid job type. Must be one of: Pickup, OnSite",
+    });
+  }
+
+  // Validate urgency
+  const validUrgencies = ["Urgent", "Normal"];
+  if (!validUrgencies.includes(urgency)) {
+    return res.status(400).json({
+      status: "error",
+      message: "Invalid urgency. Must be one of: Urgent, Normal",
     });
   }
 
@@ -744,10 +779,21 @@ const createJob = asyncHandler(async (req, res) => {
       },
     });
   } catch (error) {
+    // Surface Mongoose validation errors (e.g. missing/invalid fields caught
+    // at the schema level) as clear, field-specific 400 responses instead of
+    // a generic 500 that hides what actually went wrong.
+    if (error.name === "ValidationError") {
+      const messages = Object.values(error.errors).map((val) => val.message);
+      return res.status(400).json({
+        status: "error",
+        message: messages.join(". "),
+        errors: messages,
+      });
+    }
+    console.error("Error creating job:", error);
     res.status(500).json({
       status: "error",
-      message: "Failed to create job",
-      error: error.message,
+      message: "Failed to create job. Please try again.",
     });
   }
 });
@@ -2102,10 +2148,18 @@ const updateJob = asyncHandler(async (req, res) => {
       },
     });
   } catch (error) {
+    if (error.name === "ValidationError") {
+      const messages = Object.values(error.errors).map((val) => val.message);
+      return res.status(400).json({
+        status: "error",
+        message: messages.join(". "),
+        errors: messages,
+      });
+    }
+    console.error("Error updating job:", error);
     res.status(500).json({
       status: "error",
-      message: "Failed to update job",
-      error: error.message,
+      message: "Failed to update job. Please try again.",
     });
   }
 });

@@ -23,6 +23,17 @@ const errorHandler = (err, req, res, next) => {
     error = { message, statusCode: 400 };
   }
 
+  // Multer upload errors (file too large, too many files, unexpected field, etc.)
+  if (err.name === 'MulterError') {
+    const multerMessages = {
+      LIMIT_FILE_SIZE: 'File is too large. Maximum size allowed is 8MB.',
+      LIMIT_FILE_COUNT: 'Too many files uploaded.',
+      LIMIT_UNEXPECTED_FILE: 'Unexpected file field in upload.',
+    };
+    const message = multerMessages[err.code] || err.message || 'File upload failed';
+    error = { message, statusCode: 400 };
+  }
+
   res.status(error.statusCode || 500).json({
     status: 'error',
     message: error.message || 'Server Error',

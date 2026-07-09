@@ -256,13 +256,17 @@ const uploadJobFilesMulter = multer({
       if (ALLOWED_IMAGE_MIME_TYPES.has(file.mimetype)) {
         cb(null, true);
       } else {
-        cb(new Error('Only JPG, PNG, WEBP, HEIC, and HEIF image uploads are allowed for attachments'), false);
+        const err = new Error('Only JPG, PNG, WEBP, HEIC, and HEIF image uploads are allowed for attachments');
+        err.statusCode = 400;
+        cb(err, false);
       }
     } else if (file.fieldname === 'voiceNote') {
       if (ALLOWED_AUDIO_MIME_TYPES.has(file.mimetype)) {
         cb(null, true);
       } else {
-        cb(new Error('Only MP3, MP4, M4A, AAC, and WAV audio uploads are allowed for voice notes'), false);
+        const err = new Error('Only MP3, MP4, M4A, AAC, and WAV audio uploads are allowed for voice notes');
+        err.statusCode = 400;
+        cb(err, false);
       }
     } else {
       cb(null, false);
