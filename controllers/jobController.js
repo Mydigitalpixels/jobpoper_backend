@@ -2401,14 +2401,21 @@ const lookupWorker = asyncHandler(async (req, res) => {
     data: {
       worker: {
         _id: worker._id,
-        fullName: worker.profile?.fullName,
-        profileImage: worker.profile?.profileImage,
         workerId: worker.workerId,
-        rating: worker.rating,
-        isAppVerified: worker.verification?.status === "approved",
-        serviceCategories: worker.professionalProfile?.serviceCategories || [],
-        bio: worker.professionalProfile?.bio,
-        yearsOfExperience: worker.professionalProfile?.yearsOfExperience,
+        isProfessional: worker.isProfessional,
+        rating: worker.rating || { average: 0, count: 0 },
+        profile: {
+          fullName: worker.profile?.fullName,
+          profileImage: worker.profile?.profileImage,
+        },
+        professionalProfile: {
+          serviceCategories: (worker.professionalProfile?.serviceCategories || []).filter(Boolean),
+          bio: worker.professionalProfile?.bio,
+          yearsOfExperience: worker.professionalProfile?.yearsOfExperience,
+        },
+        verification: {
+          status: worker.verification?.status || "not_submitted",
+        },
       },
     },
   });

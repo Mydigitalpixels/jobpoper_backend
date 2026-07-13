@@ -12,21 +12,41 @@ const { generateToken } = require('../middleware/auth');
 
 const { generateUniqueWorkerId } = require('../utils/generateUniqueId');
 
-const buildUserResponse = (user) => ({
-  id: user._id,
-  phoneNumber: user.phoneNumber,
-  isVerified: user.isVerified,
-  isPhoneVerified: user.isPhoneVerified,
-  profile: user.profile,
-  verification: user.verification,
-  vehiclePreference: user.vehiclePreference,
-  workerId: user.workerId || null,
-  rating: user.rating || { average: 0, count: 0 },
-  isProfessional: user.isProfessional || false,
-  professionalProfile: user.professionalProfile || null,
-  role: user.role,
-  lastLogin: user.lastLogin
-});
+const buildUserResponse = (user) => {
+  let professionalProfile = user.professionalProfile || null;
+  if (professionalProfile && Array.isArray(professionalProfile.serviceCategories)) {
+    // Self-heal: drop any stray/unpopulated null entries (e.g. from legacy
+    // records saved before serviceCategories was consistently populated).
+    const cleanCategories = professionalProfile.serviceCategories.filter(Boolean);
+    if (cleanCategories.length !== professionalProfile.serviceCategories.length) {
+      professionalProfile = professionalProfile.toObject
+        ? { ...professionalProfile.toObject(), serviceCategories: cleanCategories }
+        : { ...professionalProfile, serviceCategories: cleanCategories };
+    }
+  }
+
+  return {
+    id: user._id,
+    phoneNumber: user.phoneNumber,
+    isVerified: user.isVerified,
+    isPhoneVerified: user.isPhoneVerified,
+    profile: user.profile,
+    verification: user.verification,
+    vehiclePreference: user.vehiclePreference,
+    workerId: user.workerId || null,
+    rating: user.rating || { average: 0, count: 0 },
+    isProfessional: user.isProfessional || false,
+    professionalProfile,
+    role: user.role,
+    lastLogin: user.lastLogin
+  };
+};
+
+// Populate professionalProfile.serviceCategories (ObjectId refs) on a user
+// document so the client always receives full category objects instead of
+// raw IDs. Safe to call on users without a professionalProfile.
+const populateServiceCategories = (user) =>
+  user.populate("professionalProfile.serviceCategories", "name slug icon");
 
 const parseCoordinate = (value) => {
   if (value === undefined || value === null || value === "") return null;
@@ -399,6 +419,10 @@ const completeProfile = asyncHandler(async (req, res) => {
     await user.save();
     console.log("[PROFILE] Profile save successful for user", user._id);
 
+    if (user.isProfessional) {
+      await populateServiceCategories(user);
+    }
+
     console.log("[PROFILE] completeProfile responding success", {
       userId: user._id,
     });
@@ -467,6 +491,10 @@ const updateCurrentLocation = asyncHandler(async (req, res) => {
 // @access  Private
 const getMe = asyncHandler(async (req, res) => {
   const user = req.user;
+
+  if (user.isProfessional) {
+    await populateServiceCategories(user);
+  }
 
   res.status(200).json({
     status: 'success',
@@ -1036,6 +1064,13 @@ const updateProfessionalProfile = asyncHandler(async (req, res) => {
       } catch {
         parsedCategories = Array.isArray(serviceCategories) ? serviceCategories : [serviceCategories];
       }
+      // Drop any falsy/malformed entries (e.g. a stale null carried over from
+      // a previous unpopulated response) so we never persist literal nulls.
+      parsedCategories = parsedCategories.filter((c) => {
+        const id = typeof c === 'string' ? c : c?._id;
+        return typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
+      }).map((c) => (typeof c === 'string' ? c : c._id));
+
       if (parsedCategories.length > 5) {
         return res.status(400).json({ status: 'error', message: 'Maximum 5 service categories allowed' });
       }
@@ -1080,6 +1115,7 @@ const updateProfessionalProfile = asyncHandler(async (req, res) => {
 
     user.markModified('professionalProfile');
     await user.save();
+    await populateServiceCategories(user);
 
     res.status(200).json({
       status: 'success',
