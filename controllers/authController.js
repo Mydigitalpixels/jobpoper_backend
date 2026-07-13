@@ -44,9 +44,21 @@ const buildUserResponse = (user) => {
 
 // Populate professionalProfile.serviceCategories (ObjectId refs) on a user
 // document so the client always receives full category objects instead of
-// raw IDs. Safe to call on users without a professionalProfile.
-const populateServiceCategories = (user) =>
-  user.populate("professionalProfile.serviceCategories", "name slug icon");
+// raw IDs. Safe to call on users without a professionalProfile. Never throws
+// - if populate fails for any reason we fall back to the unpopulated data
+// rather than failing the whole request.
+const populateServiceCategories = async (user) => {
+  if (!user || !user.professionalProfile) return user;
+  try {
+    await user.populate("professionalProfile.serviceCategories", "name slug icon");
+  } catch (err) {
+    console.error("[PROFILE] Failed to populate serviceCategories (non-fatal)", {
+      userId: user._id,
+      error: err.message,
+    });
+  }
+  return user;
+};
 
 const parseCoordinate = (value) => {
   if (value === undefined || value === null || value === "") return null;

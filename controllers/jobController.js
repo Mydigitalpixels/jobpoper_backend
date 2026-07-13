@@ -510,11 +510,18 @@ const getMyInterestedJobs = asyncHandler(async (req, res) => {
   sort[sortBy] = sortOrder;
 
   try {
+    // A job should stay visible here past the "open" stage once this user is
+    // the assigned worker - otherwise it disappears the moment the customer
+    // taps "Verify & Start Job", and the worker never sees the "Enter Job
+    // PIN to Complete" button. Jobs they merely expressed interest in (but
+    // weren't assigned) only show while still open.
     const filter = {
       isActive: true,
-      status: "open",
       scheduledDate: { $exists: true },
-      "interestedUsers.user": req.user._id,
+      $or: [
+        { status: "open", "interestedUsers.user": req.user._id },
+        { assignedWorker: req.user._id },
+      ],
     };
 
     const jobs = await Job.find(filter)
