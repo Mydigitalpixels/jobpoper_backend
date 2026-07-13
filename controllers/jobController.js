@@ -2609,7 +2609,11 @@ const getWorkerReviews = asyncHandler(async (req, res) => {
   const limit = parseInt(req.query.limit) || 10;
   const skip = (page - 1) * limit;
 
-  const worker = await User.findById(userId).select("profile.fullName workerId rating");
+  const worker = await User.findById(userId)
+    .select(
+      "profile.fullName profile.profileImage profile.location workerId rating isProfessional verification professionalProfile"
+    )
+    .populate("professionalProfile.serviceCategories", "_id name slug icon");
   if (!worker) return res.status(404).json({ status: "error", message: "Worker not found" });
 
   const reviews = await Review.find({ workerId: userId })
@@ -2626,8 +2630,17 @@ const getWorkerReviews = asyncHandler(async (req, res) => {
       worker: {
         _id: worker._id,
         fullName: worker.profile?.fullName,
+        profileImage: worker.profile?.profileImage,
+        location: worker.profile?.location,
         workerId: worker.workerId,
         rating: worker.rating,
+        verification: { status: worker.verification?.status || "not_submitted" },
+        professionalProfile: {
+          serviceCategories: (worker.professionalProfile?.serviceCategories || []).filter(Boolean),
+          workImages: worker.professionalProfile?.workImages || [],
+          bio: worker.professionalProfile?.bio || "",
+          yearsOfExperience: worker.professionalProfile?.yearsOfExperience ?? null,
+        },
       },
       reviews,
       pagination: {
