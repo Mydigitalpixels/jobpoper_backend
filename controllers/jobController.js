@@ -1813,7 +1813,7 @@ const getMyJobs = asyncHandler(async (req, res) => {
   // Build filter object - show only active jobs posted by user
   const filter = {
     postedBy: req.user._id,
-    // isActive: true
+    isActive: true,
   };
   // if (status) filter.status = status;
 
@@ -1824,6 +1824,7 @@ const getMyJobs = asyncHandler(async (req, res) => {
   try {
     const jobs = await Job.find(filter)
       .populate("category", "_id name slug icon")
+      .populate("assignedWorker", "profile.fullName profile.profileImage workerId rating")
       .sort(sort)
       .skip(skip)
       .limit(limit);
@@ -2212,12 +2213,17 @@ const updateJobStatus = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
 
-  // Validate status
-  const validStatuses = ["open", "job_started", "completed", "cancelled"];
+  // This endpoint is intentionally restricted to cancellation only.
+  // "job_started" is set exclusively by POST /jobs/:id/start (after Worker ID
+  // verification) and "completed" is set exclusively by POST /jobs/:id/complete
+  // (after the worker enters the correct Job PIN). Allowing either of those
+  // values here would let the job owner bypass PIN verification entirely.
+  const validStatuses = ["cancelled"];
   if (!validStatuses.includes(status)) {
     return res.status(400).json({
       status: "error",
-      message: "Invalid status. Must be one of: open, job_started, completed, cancelled",
+      message:
+        "This endpoint can only be used to cancel a job. Use the Verify Worker flow to start a job and the Job PIN flow to complete one.",
     });
   }
 
@@ -2239,22 +2245,23 @@ const updateJobStatus = asyncHandler(async (req, res) => {
       });
     }
 
-    // Update status
-    job.status = status;
-    if (status === "completed") {
-      job.completedAt = new Date();
+    if (job.status !== "open") {
+      return res.status(400).json({
+        status: "error",
+        message: `Only open jobs can be cancelled (current status: ${job.status})`,
+      });
     }
 
+    job.status = "cancelled";
     await job.save();
 
     res.status(200).json({
       status: "success",
-      message: `Job status updated to ${status}`,
+      message: "Job status updated to cancelled",
       data: {
         job: {
           id: job._id,
           status: job.status,
-          completedAt: job.completedAt,
         },
       },
     });
@@ -2424,6 +2431,17 @@ const startJob = asyncHandler(async (req, res) => {
   }
   if (!workerId) {
     return res.status(400).json({ status: "error", message: "Worker ID (user _id) is required" });
+  }
+
+  // Re-verify server-side that this user is a registered professional with a
+  // Worker ID, even though the client already looked them up. Prevents a
+  // tampered request from assigning an arbitrary/unverified user to the job.
+  const workerUser = await User.findById(workerId).select("isProfessional workerId");
+  if (!workerUser || !workerUser.isProfessional || !workerUser.workerId) {
+    return res.status(400).json({
+      status: "error",
+      message: "Selected worker is not a registered professional",
+    });
   }
 
   job.status = "job_started";

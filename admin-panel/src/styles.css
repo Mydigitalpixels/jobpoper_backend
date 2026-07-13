@@ -473,6 +473,50 @@ th {
   background: #f8fafc;
 }
 
+.type-badge {
+  min-width: auto;
+  padding: 8px 16px;
+  white-space: nowrap;
+  border-radius: 999px;
+  background: #fff7ed;
+  color: #c2410c;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.type-badge.professional {
+  background: rgba(249, 115, 22, 0.14);
+  color: #c2410c;
+}
+
+.work-image-card {
+  display: grid;
+  gap: 12px;
+}
+
+.work-image-frame {
+  position: relative;
+}
+
+.work-image-frame img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 14px;
+  display: block;
+}
+
+.image-delete-button {
+  padding: 10px 14px;
+  font-size: 0.9rem;
+  width: 100%;
+}
+
+.image-delete-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 @media (max-width: 1180px) {
   .stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

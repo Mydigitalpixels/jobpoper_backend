@@ -10,7 +10,8 @@ const UPLOADS_BASE_URL =
 
 const menuItems = [
   { id: "dashboard", label: "Dashboard" },
-  { id: "users", label: "Users" },
+  { id: "users", label: "Normal Users" },
+  { id: "professionals", label: "Professionals" },
   { id: "jobs", label: "Jobs" },
   { id: "verifications", label: "Verification Requests" },
 ];
@@ -76,12 +77,24 @@ function App() {
   const [verificationRequests, setVerificationRequests] = useState([]);
   const [selectedUserId, setSelectedUserId] = useState("");
   const [selectedUser, setSelectedUser] = useState(null);
+  const [selectedProfessionalId, setSelectedProfessionalId] = useState("");
+  const [selectedProfessional, setSelectedProfessional] = useState(null);
+  const [imageActionPath, setImageActionPath] = useState("");
   const [selectedJobId, setSelectedJobId] = useState("");
   const [selectedJob, setSelectedJob] = useState(null);
   const [selectedVerificationId, setSelectedVerificationId] = useState("");
   const [selectedVerification, setSelectedVerification] = useState(null);
   const [reviewForm, setReviewForm] = useState({ status: "approved", reviewNotes: "" });
   const [actionMessage, setActionMessage] = useState("");
+
+  const normalUsers = useMemo(
+    () => users.filter((user) => !user.isProfessional),
+    [users],
+  );
+  const professionals = useMemo(
+    () => users.filter((user) => user.isProfessional),
+    [users],
+  );
 
   const statsCards = useMemo(
     () => [
@@ -134,6 +147,8 @@ function App() {
       const nextUsers = usersPayload?.data?.users || [];
       const nextJobs = jobsPayload?.data?.jobs || [];
       const nextRequests = verificationPayload?.data?.requests || [];
+      const nextNormalUsers = nextUsers.filter((user) => !user.isProfessional);
+      const nextProfessionals = nextUsers.filter((user) => user.isProfessional);
 
       setAdminUser(currentUser);
       localStorage.setItem("adminUser", JSON.stringify(currentUser));
@@ -145,7 +160,11 @@ function App() {
       const nextUserId =
         keepSelections && selectedUserId
           ? selectedUserId
-          : nextUsers[0]?.id || "";
+          : nextNormalUsers[0]?.id || "";
+      const nextProfessionalId =
+        keepSelections && selectedProfessionalId
+          ? selectedProfessionalId
+          : nextProfessionals[0]?.id || "";
       const nextJobId =
         keepSelections && selectedJobId
           ? selectedJobId
@@ -156,6 +175,7 @@ function App() {
           : nextRequests[0]?.id || "";
 
       setSelectedUserId(nextUserId);
+      setSelectedProfessionalId(nextProfessionalId);
       setSelectedJobId(nextJobId);
       setSelectedVerificationId(nextVerificationId);
 
@@ -163,6 +183,12 @@ function App() {
         await loadUserDetail(authToken, nextUserId);
       } else {
         setSelectedUser(null);
+      }
+
+      if (nextProfessionalId) {
+        await loadProfessionalDetail(authToken, nextProfessionalId);
+      } else {
+        setSelectedProfessional(null);
       }
 
       if (nextJobId) {
@@ -196,6 +222,11 @@ function App() {
   const loadUserDetail = async (authToken, userId) => {
     const payload = await apiRequest(`/admin/users/${userId}`, { token: authToken });
     setSelectedUser(payload?.data?.user || null);
+  };
+
+  const loadProfessionalDetail = async (authToken, userId) => {
+    const payload = await apiRequest(`/admin/users/${userId}`, { token: authToken });
+    setSelectedProfessional(payload?.data?.user || null);
   };
 
   const loadJobDetail = async (authToken, jobId) => {
@@ -296,6 +327,8 @@ function App() {
     setVerificationRequests([]);
     setSelectedUserId("");
     setSelectedUser(null);
+    setSelectedProfessionalId("");
+    setSelectedProfessional(null);
     setSelectedJobId("");
     setSelectedJob(null);
     setSelectedVerificationId("");
@@ -306,6 +339,43 @@ function App() {
   const handleUserSelect = async (userId) => {
     setSelectedUserId(userId);
     await loadUserDetail(token, userId);
+  };
+
+  const handleProfessionalSelect = async (userId) => {
+    setSelectedProfessionalId(userId);
+    await loadProfessionalDetail(token, userId);
+  };
+
+  const handleDeleteWorkImage = async (imagePath) => {
+    if (!selectedProfessionalId || !imagePath) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Delete this work image? This cannot be undone.",
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setImageActionPath(imagePath);
+    setActionMessage("");
+    setPageError("");
+
+    try {
+      await apiRequest(`/admin/users/${selectedProfessionalId}/work-images`, {
+        token,
+        method: "DELETE",
+        body: { imagePath },
+      });
+
+      setActionMessage("Work image deleted successfully.");
+      await loadProtectedData(token, { keepSelections: true });
+    } catch (error) {
+      setPageError(error.message);
+    } finally {
+      setImageActionPath("");
+    }
   };
 
   const handleJobSelect = async (jobId) => {
@@ -602,11 +672,11 @@ function App() {
           <section className="split-layout">
             <section className="panel">
               <div className="panel-header">
-                <h3>Platform Users</h3>
-                <span>{users.length}</span>
+                <h3>Normal Users</h3>
+                <span>{normalUsers.length}</span>
               </div>
               <SelectableList
-                items={users}
+                items={normalUsers}
                 selectedId={selectedUserId}
                 onSelect={(user) => handleUserSelect(user.id)}
                 renderPrimary={(user) => user.fullName || user.phoneNumber}
@@ -648,6 +718,103 @@ function App() {
                 </div>
               ) : (
                 <EmptyPanel message="Choose a user to see details." />
+              )}
+            </section>
+          </section>
+        ) : null}
+
+        {activeView === "professionals" ? (
+          <section className="split-layout">
+            <section className="panel">
+              <div className="panel-header">
+                <h3>Professionals</h3>
+                <span>{professionals.length}</span>
+              </div>
+              <SelectableList
+                items={professionals}
+                selectedId={selectedProfessionalId}
+                onSelect={(user) => handleProfessionalSelect(user.id)}
+                renderPrimary={(user) => user.fullName || user.phoneNumber}
+                renderSecondary={(user) =>
+                  `${user.phoneNumber} • ${user.workImageCount} image${user.workImageCount === 1 ? "" : "s"}`
+                }
+              />
+            </section>
+
+            <section className="panel detail-panel">
+              <div className="panel-header">
+                <h3>Professional Detail</h3>
+                <span className="type-badge professional">Professional</span>
+              </div>
+              {selectedProfessional ? (
+                <div className="detail-stack">
+                  <DetailRow
+                    label="Full Name"
+                    value={selectedProfessional.profile?.fullName || "No name"}
+                  />
+                  <DetailRow label="Phone" value={selectedProfessional.phoneNumber} />
+                  <DetailRow label="Worker ID" value={selectedProfessional.workerId || "-"} />
+                  <DetailRow label="Email" value={selectedProfessional.profile?.email || "-"} />
+                  <DetailRow
+                    label="Location"
+                    value={selectedProfessional.profile?.location || "-"}
+                  />
+                  <DetailRow
+                    label="Years of Experience"
+                    value={
+                      selectedProfessional.professionalProfile?.yearsOfExperience ?? "-"
+                    }
+                  />
+                  <DetailRow
+                    label="Rating"
+                    value={`${selectedProfessional.rating?.average?.toFixed?.(1) ?? 0} (${selectedProfessional.rating?.count ?? 0} reviews)`}
+                  />
+                  <DetailRow
+                    label="Service Categories"
+                    value={
+                      selectedProfessional.professionalProfile?.serviceCategories?.length
+                        ? selectedProfessional.professionalProfile.serviceCategories
+                            .map((category) => category.name)
+                            .filter(Boolean)
+                            .join(", ") || "-"
+                        : "-"
+                    }
+                  />
+                  <DetailRow
+                    label="Bio"
+                    value={selectedProfessional.professionalProfile?.bio || "No bio provided"}
+                    multiline
+                  />
+                  <DetailRow
+                    label="Verification Status"
+                    value={selectedProfessional.verification?.status || "not_submitted"}
+                  />
+                  <DetailRow label="Created" value={formatDate(selectedProfessional.createdAt)} />
+                  <DetailRow label="Last Login" value={formatDate(selectedProfessional.lastLogin)} />
+
+                  <div className="detail-label">
+                    Work Images
+                    <div className="image-grid">
+                      {selectedProfessional.professionalProfile?.workImages?.length ? (
+                        selectedProfessional.professionalProfile.workImages.map(
+                          (imagePath, index) => (
+                            <WorkImageCard
+                              key={imagePath}
+                              label={`Work Image ${index + 1}`}
+                              src={buildUploadUrl(imagePath)}
+                              onDelete={() => handleDeleteWorkImage(imagePath)}
+                              deleting={imageActionPath === imagePath}
+                            />
+                          ),
+                        )
+                      ) : (
+                        <EmptyPanel message="No work images uploaded yet." />
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <EmptyPanel message="Choose a professional to see their profile." />
               )}
             </section>
           </section>
@@ -885,6 +1052,28 @@ function ImageCard({ label, src }) {
     <div className="image-card">
       <p>{label}</p>
       {src ? <img src={src} alt={label} /> : <div className="image-placeholder">No image</div>}
+    </div>
+  );
+}
+
+function WorkImageCard({ label, src, onDelete, deleting }) {
+  return (
+    <div className="image-card work-image-card">
+      <p>{label}</p>
+      {src ? (
+        <div className="work-image-frame">
+          <img src={src} alt={label} />
+        </div>
+      ) : (
+        <div className="image-placeholder">No image</div>
+      )}
+      <button
+        className="danger-button image-delete-button"
+        onClick={onDelete}
+        disabled={!src || deleting}
+      >
+        {deleting ? "Deleting..." : "Delete Image"}
+      </button>
     </div>
   );
 }

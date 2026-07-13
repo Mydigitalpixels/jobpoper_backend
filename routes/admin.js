@@ -6,6 +6,7 @@ const {
   getDashboardSummary,
   getAdminUsers,
   getAdminUserById,
+  deleteProfessionalWorkImage,
   getAdminJobs,
   getAdminJobById,
   getPendingBusinessProfileRequests,
@@ -23,6 +24,7 @@ router.use(protect, authorize("admin"));
 router.get("/dashboard", getDashboardSummary);
 router.get("/users", getAdminUsers);
 router.get("/users/:userId", getAdminUserById);
+router.delete("/users/:userId/work-images", deleteProfessionalWorkImage);
 router.get("/jobs", getAdminJobs);
 router.get("/jobs/:jobId", getAdminJobById);
 router.get("/business-profiles/pending", getPendingBusinessProfileRequests);

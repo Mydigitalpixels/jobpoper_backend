@@ -1,4 +1,6 @@
 const asyncHandler = require("express-async-handler");
+const fs = require("fs");
+const path = require("path");
 const User = require("../models/User");
 const Job = require("../models/Job");
 const BusinessProfile = require("../models/BusinessProfile");
@@ -19,9 +21,44 @@ const buildAdminUser = (user) => ({
   verificationStatus: user.verification?.status || "not_submitted",
   isActive: !!user.isActive,
   role: user.role,
+  isProfessional: !!user.isProfessional,
+  workerId: user.workerId || null,
+  rating: {
+    average: user.rating?.average || 0,
+    count: user.rating?.count || 0,
+  },
+  workImageCount: Array.isArray(user.professionalProfile?.workImages)
+    ? user.professionalProfile.workImages.length
+    : 0,
   createdAt: user.createdAt,
   lastLogin: user.lastLogin,
 });
+
+const buildProfessionalProfile = (user) => {
+  if (!user.isProfessional) {
+    return null;
+  }
+
+  const profile = user.professionalProfile || {};
+
+  return {
+    bio: profile.bio || "",
+    yearsOfExperience:
+      profile.yearsOfExperience === undefined ? null : profile.yearsOfExperience,
+    serviceCategories: Array.isArray(profile.serviceCategories)
+      ? profile.serviceCategories.map((category) =>
+          category && typeof category === "object" && category.name
+            ? {
+                id: category._id,
+                name: category.name || "",
+                slug: category.slug || "",
+              }
+            : { id: category, name: "", slug: "" },
+        )
+      : [],
+    workImages: Array.isArray(profile.workImages) ? profile.workImages : [],
+  };
+};
 
 const buildVerificationPayload = (user) => ({
   selfieImage: user.verification?.selfieImage || null,
@@ -281,7 +318,9 @@ const getAdminUsers = asyncHandler(async (req, res) => {
 // @route   GET /api/admin/users/:userId
 // @access  Private/Admin
 const getAdminUserById = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.params.userId).select("-pin");
+  const user = await User.findById(req.params.userId)
+    .select("-pin")
+    .populate("professionalProfile.serviceCategories", "name slug");
 
   if (!user) {
     return res.status(404).json({
@@ -297,7 +336,73 @@ const getAdminUserById = asyncHandler(async (req, res) => {
         ...buildAdminUser(user),
         profile: user.profile,
         verification: buildVerificationPayload(user),
+        professionalProfile: buildProfessionalProfile(user),
       },
+    },
+  });
+});
+
+// @desc    Delete a single work image from a professional's profile
+// @route   DELETE /api/admin/users/:userId/work-images
+// @access  Private/Admin
+const deleteProfessionalWorkImage = asyncHandler(async (req, res) => {
+  const { imagePath } = req.body;
+
+  if (!imagePath || typeof imagePath !== "string") {
+    return res.status(400).json({
+      status: "error",
+      message: "imagePath is required",
+    });
+  }
+
+  const user = await User.findById(req.params.userId);
+
+  if (!user) {
+    return res.status(404).json({
+      status: "error",
+      message: "User not found",
+    });
+  }
+
+  const existingImages = user.professionalProfile?.workImages || [];
+
+  if (!existingImages.includes(imagePath)) {
+    return res.status(404).json({
+      status: "error",
+      message: "Work image not found on this profile",
+    });
+  }
+
+  user.professionalProfile.workImages = existingImages.filter(
+    (image) => image !== imagePath,
+  );
+  user.markModified("professionalProfile");
+  await user.save();
+
+  // Best-effort removal of the physical file; array update above is the
+  // source of truth so a missing/failed file delete does not block the request.
+  const safeRelativePath = path
+    .normalize(imagePath)
+    .replace(/^(\.\.[/\\])+/, "")
+    .replace(/^[/\\]+/, "");
+  const fullPath = path.join(__dirname, "..", "uploads", safeRelativePath);
+
+  fs.unlink(fullPath, (err) => {
+    if (err && err.code !== "ENOENT") {
+      console.warn("[ADMIN] Failed to remove work image file:", err.message);
+    }
+  });
+
+  const updatedUser = await User.findById(user._id).populate(
+    "professionalProfile.serviceCategories",
+    "name slug",
+  );
+
+  res.status(200).json({
+    status: "success",
+    message: "Work image deleted successfully",
+    data: {
+      professionalProfile: buildProfessionalProfile(updatedUser),
     },
   });
 });
@@ -562,6 +667,7 @@ module.exports = {
   getDashboardSummary,
   getAdminUsers,
   getAdminUserById,
+  deleteProfessionalWorkImage,
   getAdminJobs,
   getAdminJobById,
   getPendingBusinessProfileRequests,
