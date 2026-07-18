@@ -127,8 +127,14 @@ const userSchema = new mongoose.Schema({
     uppercase: true,
     trim: true,
     minlength: 5,
-    maxlength: 5,
-    default: null
+    maxlength: 5
+    // No `default: null` here on purpose: Mongoose would explicitly set this
+    // field to null on every new user, and MongoDB's sparse index only
+    // excludes documents where the field is truly absent (not explicit
+    // null). With a default of null, only the first-ever user could be
+    // created — every user after that hit a duplicate-key error on this
+    // index during registration. Leaving it unset keeps the field genuinely
+    // absent until a Worker ID is actually assigned.
   },
   rating: {
     average: { type: Number, default: 0, min: 0, max: 5 },

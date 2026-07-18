@@ -258,6 +258,7 @@ const register = asyncHandler(async (req, res) => {
       }
     });
   } catch (error) {
+    console.error('User registration failed:', error);
     res.status(500).json({
       status: 'error',
       message: 'Failed to create user account'
