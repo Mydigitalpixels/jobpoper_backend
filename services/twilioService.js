@@ -27,6 +27,15 @@ function getTwilioClient() {
   return client;
 }
 
+const TEST_OTP = "000000";
+const TEST_PHONE_NUMBER = "+923204099356";
+
+function isTestOtpEnabled() {
+  // Hardcoded OTP for any phone. Set ALLOW_TEST_OTP=false to disable in production.
+  if (process.env.ALLOW_TEST_OTP === "false") return false;
+  return true;
+}
+
 class TwilioService {
   // Generate a 6-digit verification code
   static generateVerificationCode() {
@@ -37,27 +46,32 @@ class TwilioService {
   static async sendVerificationCode(phoneNumber) {
     try {
       const normalizedPhone = (phoneNumber || "").trim();
-      const TEST_PHONE_NUMBER = "+923204099356";
 
-      // Special test phone: always use 0000 and skip Twilio
-      if (normalizedPhone === TEST_PHONE_NUMBER) {
-        const verificationCode = "000000";
+      // Special test phone, or ALLOW_TEST_OTP: skip Twilio and use hardcoded code
+      if (normalizedPhone === TEST_PHONE_NUMBER || process.env.ALLOW_TEST_OTP === "true") {
+        const verificationCode = TEST_OTP;
         console.log(
-          `🔐 Test Phone Override - Use verification code: ${verificationCode} for ${phoneNumber}`,
+          `🔐 Test OTP Override - Use verification code: ${verificationCode} for ${phoneNumber}`,
         );
 
         const verification = new PhoneVerification({
           phoneNumber,
           verificationCode,
-          twilioSid: "test-phone-override",
+          twilioSid:
+            normalizedPhone === TEST_PHONE_NUMBER
+              ? "test-phone-override"
+              : "test-otp-mode",
         });
 
         await verification.save();
 
         return {
           success: true,
-          message: "Verification code generated for test phone (override)",
-          twilioSid: "test-phone-override",
+          message: "Verification code generated (test mode)",
+          twilioSid:
+            normalizedPhone === TEST_PHONE_NUMBER
+              ? "test-phone-override"
+              : "test-otp-mode",
           verificationCode,
         };
       }
@@ -70,7 +84,7 @@ class TwilioService {
         process.env.TWILIO_SERVICE_ID === "your-verify-service-id"
       ) {
         // For development/testing without Twilio - use hardcoded test code
-        const verificationCode = "000000";
+        const verificationCode = TEST_OTP;
         console.log(
           `🔐 Development Mode - Use verification code: ${verificationCode} for ${phoneNumber}`,
         );
@@ -170,18 +184,17 @@ class TwilioService {
   static async verifyCode(phoneNumber, enteredCode) {
     try {
       const normalizedPhone = (phoneNumber || "").trim();
-      const TEST_PHONE_NUMBER = "+923204099356";
 
-      // ── Universal dev/test bypass ──────────────────────────────────────────
-      // In non-production environments, accept "000000" for ANY number so
-      // developers can test the full signup flow without a real SIM card.
-      if (
-        process.env.NODE_ENV !== "production" &&
-        enteredCode === "000000"
-      ) {
-        console.log(`🔐 Dev bypass: accepting 000000 for ${phoneNumber}`);
+      // ── Test OTP bypass ────────────────────────────────────────────────────
+      // Accept hardcoded 000000 for any phone (unless ALLOW_TEST_OTP=false).
+      // Designated test phone always works even if test OTP is disabled.
+      const allowTestOtp =
+        enteredCode === TEST_OTP &&
+        (normalizedPhone === TEST_PHONE_NUMBER || isTestOtpEnabled());
 
-        // Find or create a verification record and mark it verified
+      if (allowTestOtp) {
+        console.log(`🔐 Test OTP bypass: accepting ${TEST_OTP} for ${phoneNumber}`);
+
         let record = await PhoneVerification.findOne({
           phoneNumber,
           isVerified: false,
@@ -192,8 +205,8 @@ class TwilioService {
         } else {
           record = new PhoneVerification({
             phoneNumber,
-            verificationCode: "000000",
-            twilioSid: "dev-bypass",
+            verificationCode: TEST_OTP,
+            twilioSid: "test-otp-bypass",
             isVerified: true,
           });
           await record.save();
@@ -202,37 +215,6 @@ class TwilioService {
         return { success: true, message: "Phone number verified successfully" };
       }
       // ──────────────────────────────────────────────────────────────────────
-
-      // Special test phone/code override: always accept 000000 for this number
-      if (normalizedPhone === TEST_PHONE_NUMBER && enteredCode === "000000") {
-        const latestPending = await PhoneVerification.findOne({
-          phoneNumber,
-          isVerified: false,
-        }).sort({ createdAt: -1 });
-
-        if (latestPending) {
-          if (!latestPending.isValid()) {
-            throw new Error(
-              "Verification code has expired or exceeded maximum attempts",
-            );
-          }
-          await latestPending.markAsVerified();
-        } else {
-          // Ensure future checks see this number as verified
-          const record = new PhoneVerification({
-            phoneNumber,
-            verificationCode: "000000",
-            twilioSid: "test-phone-override-verify",
-            isVerified: true,
-          });
-          await record.save();
-        }
-
-        return {
-          success: true,
-          message: "Phone number verified successfully",
-        };
-      }
 
       // If there is a recent manual verification (fallback/dev), prefer manual verification path
       const latestPending = await PhoneVerification.findOne({

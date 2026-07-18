@@ -2,6 +2,10 @@
 PORT=3001
 NODE_ENV=development
 
+# Test OTP (000000) is enabled by default for any phone.
+# Set to false to require real Twilio codes only:
+# ALLOW_TEST_OTP=false
+
 # MongoDB Configuration
 MONGODB_URI=mongodb+srv://alphawolf091994_db_jobpoper:6pCBfJqm4e9798t0@clusterjobpoper.qbhmwcm.mongodb.net/?retryWrites=true&w=majority&appName=ClusterJobPoper
 
