@@ -7,7 +7,7 @@ NODE_ENV=development
 # ALLOW_TEST_OTP=false
 
 # MongoDB Configuration
-MONGODB_URI=mongodb+srv://alphawolf091994_db_jobpoper:6pCBfJqm4e9798t0@clusterjobpoper.qbhmwcm.mongodb.net/?retryWrites=true&w=majority&appName=ClusterJobPoper
+MONGODB_URI=your-mongodb-connection-string
 
 # JWT Configuration
 JWT_SECRET=your-super-secret-jwt-key-here
@@ -16,6 +16,6 @@ JWT_SECRET=your-super-secret-jwt-key-here
 CORS_ORIGIN=http://localhost:3000
 
 # Twilio Configuration
-TWILIO_ACCOUNT_SID=AC66454769602d9739c9bf7c44dc681afa
-TWILIO_AUTH_TOKEN=ea69eab598a0c27ab5c411072dc7750b
-TWILIO_SERVICE_ID=VAdba862893ea43961ab30f2e08e6d2fca
+TWILIO_ACCOUNT_SID=your-twilio-account-sid
+TWILIO_AUTH_TOKEN=your-twilio-auth-token
+TWILIO_SERVICE_ID=your-twilio-verify-service-id
