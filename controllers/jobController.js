@@ -2424,6 +2424,11 @@ const lookupWorker = asyncHandler(async (req, res) => {
         },
         verification: {
           status: worker.verification?.status || "not_submitted",
+          // Selfie from identity verification — preferred over profileImage for trust
+          selfieImage:
+            worker.verification?.status === "approved"
+              ? worker.verification?.selfieImage || null
+              : null,
         },
       },
     },
