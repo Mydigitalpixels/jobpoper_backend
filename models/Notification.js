@@ -11,8 +11,16 @@ const notificationSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Notification type is required'],
     enum: {
-      values: ['job_created', 'job_interest', 'verification_review', 'business_profile_review', 'order_received'],
-      message: 'Notification type must be one of: job_created, job_interest, verification_review, business_profile_review, order_received'
+      values: [
+        'job_created',
+        'job_interest',
+        'job_started',
+        'job_completed',
+        'verification_review',
+        'business_profile_review',
+        'order_received',
+      ],
+      message: 'Notification type must be one of: job_created, job_interest, job_started, job_completed, verification_review, business_profile_review, order_received'
     },
     index: true
   },

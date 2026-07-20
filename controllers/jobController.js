@@ -1814,6 +1814,10 @@ const getJobById = asyncHandler(async (req, res) => {
           select: "_id name slug icon",
         },
       })
+      .populate(
+        "assignedWorker",
+        "profile.fullName profile.profileImage profile.email phoneNumber workerId rating isProfessional verification.selfieImage verification.status professionalProfile.yearsOfExperience professionalProfile.bio",
+      )
       .populate("category", "_id name slug icon");
 
     if (!job) {
@@ -2501,20 +2505,24 @@ const startJob = asyncHandler(async (req, res) => {
   job.startedAt = new Date();
   await job.save();
 
-  // Notify the assigned worker
+  // Notify the assigned worker (in-app + push)
   try {
     const notif = await Notification.create({
       recipient: workerId,
       type: "job_started",
-      title: "Task Started!",
-      message: `The customer has confirmed you for: ${job.title}. Head over to complete the task!`,
+      title: "You've Been Selected!",
+      message: `The customer verified you and started the task: "${job.title}". Open My Interested Tasks to continue.`,
       relatedEntityType: "Job",
       relatedEntityId: job._id,
       navigationIdentifier: `job:${job._id}`,
       isRead: false,
     });
-    sendPushToUserForNotification(notif.recipient, notif, Device).catch(() => {});
-  } catch (_) {}
+    sendPushToUserForNotification(notif.recipient, notif, Device).catch((e) =>
+      console.warn("[FCM] job_started push failed", e && e.message),
+    );
+  } catch (error) {
+    console.error("Error creating job_started notification:", error);
+  }
 
   res.status(200).json({
     status: "success",
@@ -2559,7 +2567,7 @@ const completeJob = asyncHandler(async (req, res) => {
   job.completedAt = new Date();
   await job.save();
 
-  // Notify the job owner to leave a review
+  // Notify the job owner to leave a review (in-app + push)
   try {
     const notif = await Notification.create({
       recipient: job.postedBy,
@@ -2571,8 +2579,12 @@ const completeJob = asyncHandler(async (req, res) => {
       navigationIdentifier: `job:${job._id}`,
       isRead: false,
     });
-    sendPushToUserForNotification(notif.recipient, notif, Device).catch(() => {});
-  } catch (_) {}
+    sendPushToUserForNotification(notif.recipient, notif, Device).catch((e) =>
+      console.warn("[FCM] job_completed push failed", e && e.message),
+    );
+  } catch (error) {
+    console.error("Error creating job_completed notification:", error);
+  }
 
   res.status(200).json({
     status: "success",

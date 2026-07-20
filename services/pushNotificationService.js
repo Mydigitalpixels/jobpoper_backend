@@ -15,6 +15,8 @@ function getAndroidChannelId(type) {
   if (
     t === "job_created" ||
     t === "job_interest" ||
+    t === "job_started" ||
+    t === "job_completed" ||
     t === "verification_review" ||
     t === "business_profile_review" ||
     t === "order_received"
