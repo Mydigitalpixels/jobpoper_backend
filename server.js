@@ -51,7 +51,7 @@ app.use("/api/health", require("./routes/health"));
 // Basic route
 app.get("/", (req, res) => {
   res.json({
-    message: "JobPoper Backend API is running!",
+    message: "MakeMy Task Backend API is running!",
     version: "1.0.0",
     status: "success",
   });

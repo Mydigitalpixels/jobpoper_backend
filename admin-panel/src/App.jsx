@@ -12,7 +12,7 @@ const menuItems = [
   { id: "dashboard", label: "Dashboard" },
   { id: "users", label: "Normal Users" },
   { id: "professionals", label: "Professionals" },
-  { id: "jobs", label: "Jobs" },
+  { id: "jobs", label: "Tasks" },
   { id: "verifications", label: "Verification Requests" },
 ];
 
@@ -99,8 +99,8 @@ function App() {
   const statsCards = useMemo(
     () => [
       { label: "Total Users", value: dashboard.stats.totalUsers },
-      { label: "Total Jobs", value: dashboard.stats.totalJobs },
-      { label: "Active Jobs", value: dashboard.stats.activeJobs },
+      { label: "Total Tasks", value: dashboard.stats.totalJobs },
+      { label: "Active Tasks", value: dashboard.stats.activeJobs },
       { label: "Verified Users", value: dashboard.stats.verifiedUsers },
       {
         label: "Pending Requests",
@@ -428,7 +428,7 @@ function App() {
       <div className="auth-shell">
         <div className="auth-panel">
           <div className="brand-mark">JP</div>
-          <p className="eyebrow">JobPoper Admin Panel</p>
+          <p className="eyebrow">MakeMy Task Admin Panel</p>
           <h1>Sign in to manage the platform</h1>
           <p className="auth-copy">
             Login with an <strong>admin</strong> account. If this is a fresh
@@ -580,7 +580,7 @@ function App() {
             <div className="brand-mark">JP</div>
             <div>
               <p className="eyebrow">Operations</p>
-              <h2>JobPoper Admin</h2>
+              <h2>MakeMy Task Admin</h2>
             </div>
           </div>
 
@@ -649,7 +649,7 @@ function App() {
 
               <section className="panel">
                 <div className="panel-header">
-                  <h3>Recent Jobs</h3>
+                  <h3>Recent Tasks</h3>
                   <span>{dashboard.recentJobs.length}</span>
                 </div>
                 <SimpleTable
@@ -661,7 +661,7 @@ function App() {
                     job.status,
                     job.postedBy.fullName || job.postedBy.phoneNumber || "Unknown",
                   ])}
-                  emptyMessage="No jobs found yet."
+                  emptyMessage="No tasks found yet."
                 />
               </section>
             </div>
@@ -824,7 +824,7 @@ function App() {
           <section className="split-layout">
             <section className="panel">
               <div className="panel-header">
-                <h3>Jobs</h3>
+                <h3>Tasks</h3>
                 <span>{jobs.length}</span>
               </div>
               <SelectableList
@@ -840,7 +840,7 @@ function App() {
 
             <section className="panel detail-panel">
               <div className="panel-header">
-                <h3>Job Detail</h3>
+                <h3>Task Detail</h3>
                 <span>{selectedJob ? selectedJob.status : "-"}</span>
               </div>
               {selectedJob ? (
@@ -876,7 +876,7 @@ function App() {
                   />
                 </div>
               ) : (
-                <EmptyPanel message="Choose a job to see details." />
+                <EmptyPanel message="Choose a task to see details." />
               )}
             </section>
           </section>

@@ -3,15 +3,15 @@ const mongoose = require('mongoose');
 const jobSchema = new mongoose.Schema({
   title: {
     type: String,
-    required: [true, 'Job title is required'],
+    required: [true, 'Task title is required'],
     trim: true,
-    maxlength: [100, 'Job title cannot be more than 100 characters']
+    maxlength: [100, 'Task title cannot be more than 100 characters']
   },
   description: {
     type: String,
     required: false,
     trim: true,
-    maxlength: [2000, 'Job description cannot be more than 2000 characters']
+    maxlength: [2000, 'Task description cannot be more than 2000 characters']
   },
   cost: {
     type: String,
@@ -21,10 +21,10 @@ const jobSchema = new mongoose.Schema({
   },
   jobType: {
     type: String,
-    required: [true, 'Job type is required'],
+    required: [true, 'Task type is required'],
     enum: {
       values: ['Pickup', 'OnSite'],
-      message: 'Job type must be one of: Pickup, OnSite'
+      message: 'Task type must be one of: Pickup, OnSite'
     }
   },
    location: {
@@ -66,11 +66,11 @@ const jobSchema = new mongoose.Schema({
       message: function(props) {
         const jobType = this.jobType;
         if (jobType === 'OnSite') {
-          return 'OnSite jobs require a single location object with id, name, fullAddress, latitude, and longitude';
+          return 'OnSite tasks require a single location object with id, name, fullAddress, latitude, and longitude';
         } else if (jobType === 'Pickup') {
-          return 'Pickup jobs require both source and destination locations with id, name, fullAddress, latitude, and longitude';
+          return 'Pickup tasks require both source and destination locations with id, name, fullAddress, latitude, and longitude';
         }
-        return 'Invalid location format for job type';
+        return 'Invalid location format for task type';
       }
     }
   },
@@ -153,7 +153,7 @@ const jobSchema = new mongoose.Schema({
   postedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: [true, 'Job must be posted by a user']
+    required: [true, 'Task must be posted by a user']
   },
   postedOnBehalf: {
     type: Boolean,

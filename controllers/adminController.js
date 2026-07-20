@@ -442,7 +442,7 @@ const getAdminJobById = asyncHandler(async (req, res) => {
   if (!job) {
     return res.status(404).json({
       status: "error",
-      message: "Job not found",
+      message: "Task not found",
     });
   }
 

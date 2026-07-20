@@ -132,7 +132,7 @@ const listMyDevices = asyncHandler(async (req, res) => {
 // @body    { title?: string, body?: string, includeInactive?: boolean }
 const sendTestPush = asyncHandler(async (req, res) => {
   const { sendPushToUserForNotification } = require("../services/pushNotificationService");
-  const title = (req.body?.title || "JobPoper test push").toString().slice(0, 120);
+  const title = (req.body?.title || "MakeMy Task test push").toString().slice(0, 120);
   const body =
     (req.body?.body || "If you see this on your device, FCM is wired up correctly. 🎉")
       .toString()

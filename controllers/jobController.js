@@ -58,7 +58,7 @@ const parsePostedOnBehalfFields = (body) => {
     };
   }
   if (!PHONE_REGEX.test(phoneNumber)) {
-    return { error: "Please enter a valid phone number for the job seeker" };
+    return { error: "Please enter a valid phone number for the task seeker" };
   }
 
   return {
@@ -387,8 +387,8 @@ const createJobCreatedNotifications = async (job, jobCreatorId) => {
       .map((userId) => ({
         recipient: userId,
         type: "job_created",
-        title: "New job near you",
-        message: `${creatorName} posted a new job: ${job.title}`,
+        title: "New task near you",
+        message: `${creatorName} posted a new task: ${job.title}`,
         relatedEntityType: "Job",
         relatedEntityId: job._id,
         navigationIdentifier: `job:${job._id}`,
@@ -427,7 +427,7 @@ const showInterestInJob = asyncHandler(async (req, res) => {
     if (!job || !job.isActive || job.status !== "open") {
       return res.status(404).json({
         status: "error",
-        message: "Job not found or not open",
+        message: "Task not found or not open",
       });
     }
 
@@ -435,7 +435,7 @@ const showInterestInJob = asyncHandler(async (req, res) => {
     if (job.responsePreference !== "show_interest") {
       return res.status(400).json({
         status: "error",
-        message: "This job does not accept interest submissions",
+        message: "This task does not accept interest submissions",
       });
     }
 
@@ -468,8 +468,8 @@ const showInterestInJob = asyncHandler(async (req, res) => {
       const interestNotif = await Notification.create({
         recipient: job.postedBy,
         type: "job_interest",
-        title: "New Interest in Your Job",
-        message: `${interestedUserName} showed interest in your job: ${job.title}`,
+        title: "New Interest in Your Task",
+        message: `${interestedUserName} showed interest in your task: ${job.title}`,
         relatedEntityType: "Job",
         relatedEntityId: job._id,
         navigationIdentifier: `job:${job._id}`,
@@ -550,7 +550,7 @@ const getMyInterestedJobs = asyncHandler(async (req, res) => {
   } catch (error) {
     res.status(500).json({
       status: "error",
-      message: "Failed to fetch interested jobs",
+      message: "Failed to fetch interested tasks",
       error: error.message,
     });
   }
@@ -591,10 +591,10 @@ const createJob = asyncHandler(async (req, res) => {
   // Validate required fields — collect every missing field so the client
   // can surface a specific, actionable message instead of a generic one.
   const requiredFieldLabels = {
-    title: "Job title",
+    title: "Task title",
     cost: "Cost/budget",
     locationObj: "Location",
-    jobType: "Job type",
+    jobType: "Task type",
     urgency: "Urgency",
     scheduledDate: "Scheduled date",
     scheduledTime: "Scheduled time",
@@ -627,7 +627,7 @@ const createJob = asyncHandler(async (req, res) => {
   if (!validJobTypes.includes(jobType)) {
     return res.status(400).json({
       status: "error",
-      message: "Invalid job type. Must be one of: Pickup, OnSite",
+      message: "Invalid task type. Must be one of: Pickup, OnSite",
     });
   }
 
@@ -780,7 +780,7 @@ const createJob = asyncHandler(async (req, res) => {
 
     res.status(201).json({
       status: "success",
-      message: "Job created successfully",
+      message: "Task created successfully",
       data: {
         job,
       },
@@ -800,7 +800,7 @@ const createJob = asyncHandler(async (req, res) => {
     console.error("Error creating job:", error);
     res.status(500).json({
       status: "error",
-      message: "Failed to create job. Please try again.",
+      message: "Failed to create task. Please try again.",
     });
   }
 });
@@ -929,7 +929,7 @@ const getAllJobs = asyncHandler(async (req, res) => {
   } catch (error) {
     res.status(500).json({
       status: "error",
-      message: "Failed to fetch jobs",
+      message: "Failed to fetch tasks",
       error: error.message,
     });
   }
@@ -1249,7 +1249,7 @@ const getHotJobs = asyncHandler(async (req, res) => {
   } catch (error) {
     res.status(500).json({
       status: 'error',
-      message: 'Failed to fetch hot jobs',
+      message: 'Failed to fetch hot tasks',
       error: error.message
     });
   }
@@ -1471,7 +1471,7 @@ const searchHotJobs = asyncHandler(async (req, res) => {
   } catch (error) {
     res.status(500).json({
       status: 'error',
-      message: 'Failed to search hot jobs',
+      message: 'Failed to search hot tasks',
       error: error.message
     });
   }
@@ -1608,7 +1608,7 @@ const getNormalJobs = asyncHandler(async (req, res) => {
   } catch (error) {
     res.status(500).json({
       status: 'error',
-      message: 'Failed to fetch normal jobs',
+      message: 'Failed to fetch normal tasks',
       error: error.message
     });
   }
@@ -1754,7 +1754,7 @@ const searchNormalJobs = asyncHandler(async (req, res) => {
   } catch (error) {
     res.status(500).json({
       status: 'error',
-      message: 'Failed to search normal jobs',
+      message: 'Failed to search normal tasks',
       error: error.message
     });
   }
@@ -1786,7 +1786,7 @@ const getJobById = asyncHandler(async (req, res) => {
     if (!job) {
       return res.status(404).json({
         status: "error",
-        message: "Job not found",
+        message: "Task not found",
       });
     }
 
@@ -1799,7 +1799,7 @@ const getJobById = asyncHandler(async (req, res) => {
   } catch (error) {
     res.status(500).json({
       status: "error",
-      message: "Failed to fetch job",
+      message: "Failed to fetch task",
       error: error.message,
     });
   }
@@ -1855,7 +1855,7 @@ const getMyJobs = asyncHandler(async (req, res) => {
   } catch (error) {
     res.status(500).json({
       status: "error",
-      message: "Failed to fetch your jobs",
+      message: "Failed to fetch your tasks",
       error: error.message,
     });
   }
@@ -1890,7 +1890,7 @@ const updateJob = asyncHandler(async (req, res) => {
     if (!job) {
       return res.status(404).json({
         status: "error",
-        message: "Job not found",
+        message: "Task not found",
       });
     }
 
@@ -1898,7 +1898,7 @@ const updateJob = asyncHandler(async (req, res) => {
     if (job.postedBy.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         status: "error",
-        message: "Not authorized to update this job",
+        message: "Not authorized to update this task",
       });
     }
 
@@ -1922,7 +1922,7 @@ const updateJob = asyncHandler(async (req, res) => {
       if (!validJobTypes.includes(jobType)) {
         return res.status(400).json({
           status: "error",
-          message: "Invalid job type. Must be one of: Pickup, OnSite",
+          message: "Invalid task type. Must be one of: Pickup, OnSite",
         });
       }
       updateData.jobType = jobType;
@@ -2150,7 +2150,7 @@ const updateJob = asyncHandler(async (req, res) => {
 
     res.status(200).json({
       status: "success",
-      message: "Job updated successfully",
+      message: "Task updated successfully",
       data: {
         job: updatedJob,
       },
@@ -2167,7 +2167,7 @@ const updateJob = asyncHandler(async (req, res) => {
     console.error("Error updating job:", error);
     res.status(500).json({
       status: "error",
-      message: "Failed to update job. Please try again.",
+      message: "Failed to update task. Please try again.",
     });
   }
 });
@@ -2184,7 +2184,7 @@ const deleteJob = asyncHandler(async (req, res) => {
     if (!job) {
       return res.status(404).json({
         status: "error",
-        message: "Job not found",
+        message: "Task not found",
       });
     }
 
@@ -2192,7 +2192,7 @@ const deleteJob = asyncHandler(async (req, res) => {
     if (job.postedBy.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         status: "error",
-        message: "Not authorized to delete this job",
+        message: "Not authorized to delete this task",
       });
     }
 
@@ -2202,12 +2202,12 @@ const deleteJob = asyncHandler(async (req, res) => {
 
     res.status(200).json({
       status: "success",
-      message: "Job deleted successfully",
+      message: "Task deleted successfully",
     });
   } catch (error) {
     res.status(500).json({
       status: "error",
-      message: "Failed to delete job",
+      message: "Failed to delete task",
       error: error.message,
     });
   }
@@ -2230,7 +2230,7 @@ const updateJobStatus = asyncHandler(async (req, res) => {
     return res.status(400).json({
       status: "error",
       message:
-        "This endpoint can only be used to cancel a job. Use the Verify Worker flow to start a job and the Job PIN flow to complete one.",
+        "This endpoint can only be used to cancel a task. Use the Verify Worker flow to start a task and the Task PIN flow to complete one.",
     });
   }
 
@@ -2240,7 +2240,7 @@ const updateJobStatus = asyncHandler(async (req, res) => {
     if (!job) {
       return res.status(404).json({
         status: "error",
-        message: "Job not found",
+        message: "Task not found",
       });
     }
 
@@ -2248,14 +2248,14 @@ const updateJobStatus = asyncHandler(async (req, res) => {
     if (job.postedBy.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         status: "error",
-        message: "Not authorized to update this job status",
+        message: "Not authorized to update this task status",
       });
     }
 
     if (job.status !== "open") {
       return res.status(400).json({
         status: "error",
-        message: `Only open jobs can be cancelled (current status: ${job.status})`,
+        message: `Only open tasks can be cancelled (current status: ${job.status})`,
       });
     }
 
@@ -2264,7 +2264,7 @@ const updateJobStatus = asyncHandler(async (req, res) => {
 
     res.status(200).json({
       status: "success",
-      message: "Job status updated to cancelled",
+      message: "Task status updated to cancelled",
       data: {
         job: {
           id: job._id,
@@ -2275,7 +2275,7 @@ const updateJobStatus = asyncHandler(async (req, res) => {
   } catch (error) {
     res.status(500).json({
       status: "error",
-      message: "Failed to update job status",
+      message: "Failed to update task status",
       error: error.message,
     });
   }
@@ -2362,7 +2362,7 @@ const expireOldJobs = asyncHandler(async (req, res) => {
 
     res.status(200).json({
       status: "success",
-      message: "Expired jobs processed successfully",
+      message: "Expired tasks processed successfully",
       data: {
         checkedJobs: jobsToCheck.length,
         expiredJobs: expiredJobIds.length,
@@ -2372,7 +2372,7 @@ const expireOldJobs = asyncHandler(async (req, res) => {
   } catch (error) {
     res.status(500).json({
       status: "error",
-      message: "Failed to process expired jobs",
+      message: "Failed to process expired tasks",
       error: error.message,
     });
   }
@@ -2436,12 +2436,12 @@ const startJob = asyncHandler(async (req, res) => {
   const { workerId } = req.body; // workerId = User._id of the assigned worker
 
   const job = await Job.findById(id);
-  if (!job) return res.status(404).json({ status: "error", message: "Job not found" });
+  if (!job) return res.status(404).json({ status: "error", message: "Task not found" });
   if (job.postedBy.toString() !== req.user._id.toString()) {
     return res.status(403).json({ status: "error", message: "Not authorized" });
   }
   if (job.status !== "open") {
-    return res.status(400).json({ status: "error", message: `Cannot start a job with status: ${job.status}` });
+    return res.status(400).json({ status: "error", message: `Cannot start a task with status: ${job.status}` });
   }
   if (!workerId) {
     return res.status(400).json({ status: "error", message: "Worker ID (user _id) is required" });
@@ -2468,8 +2468,8 @@ const startJob = asyncHandler(async (req, res) => {
     const notif = await Notification.create({
       recipient: workerId,
       type: "job_started",
-      title: "Job Started!",
-      message: `The customer has confirmed you for: ${job.title}. Head over to complete the job!`,
+      title: "Task Started!",
+      message: `The customer has confirmed you for: ${job.title}. Head over to complete the task!`,
       relatedEntityType: "Job",
       relatedEntityId: job._id,
       navigationIdentifier: `job:${job._id}`,
@@ -2480,7 +2480,7 @@ const startJob = asyncHandler(async (req, res) => {
 
   res.status(200).json({
     status: "success",
-    message: "Job started successfully",
+    message: "Task started successfully",
     data: { jobId: job._id, status: job.status, startedAt: job.startedAt },
   });
 });
@@ -2493,12 +2493,12 @@ const completeJob = asyncHandler(async (req, res) => {
   const { jobPin } = req.body;
 
   const job = await Job.findById(id);
-  if (!job) return res.status(404).json({ status: "error", message: "Job not found" });
+  if (!job) return res.status(404).json({ status: "error", message: "Task not found" });
   if (job.status !== "job_started") {
-    return res.status(400).json({ status: "error", message: "Job is not in progress" });
+    return res.status(400).json({ status: "error", message: "Task is not in progress" });
   }
   if (!job.assignedWorker || job.assignedWorker.toString() !== req.user._id.toString()) {
-    return res.status(403).json({ status: "error", message: "You are not the assigned worker for this job" });
+    return res.status(403).json({ status: "error", message: "You are not the assigned worker for this task" });
   }
 
   // Rate-limit: max 5 wrong attempts
@@ -2512,7 +2512,7 @@ const completeJob = asyncHandler(async (req, res) => {
     const remaining = 5 - job.pinAttempts;
     return res.status(400).json({
       status: "error",
-      message: `Incorrect Job PIN. ${remaining} attempt${remaining !== 1 ? "s" : ""} remaining.`,
+      message: `Incorrect Task PIN. ${remaining} attempt${remaining !== 1 ? "s" : ""} remaining.`,
     });
   }
 
@@ -2526,8 +2526,8 @@ const completeJob = asyncHandler(async (req, res) => {
     const notif = await Notification.create({
       recipient: job.postedBy,
       type: "job_completed",
-      title: "Job Completed!",
-      message: `Your job "${job.title}" has been completed. Please leave a review!`,
+      title: "Task Completed!",
+      message: `Your task "${job.title}" has been completed. Please leave a review!`,
       relatedEntityType: "Job",
       relatedEntityId: job._id,
       navigationIdentifier: `job:${job._id}`,
@@ -2538,7 +2538,7 @@ const completeJob = asyncHandler(async (req, res) => {
 
   res.status(200).json({
     status: "success",
-    message: "Job completed successfully!",
+    message: "Task completed successfully!",
     data: { jobId: job._id, status: job.status, completedAt: job.completedAt },
   });
 });
@@ -2551,18 +2551,18 @@ const submitReview = asyncHandler(async (req, res) => {
   const { rating, comment } = req.body;
 
   const job = await Job.findById(id).populate("assignedWorker", "_id rating");
-  if (!job) return res.status(404).json({ status: "error", message: "Job not found" });
+  if (!job) return res.status(404).json({ status: "error", message: "Task not found" });
   if (job.postedBy.toString() !== req.user._id.toString()) {
     return res.status(403).json({ status: "error", message: "Not authorized" });
   }
   if (job.status !== "completed") {
-    return res.status(400).json({ status: "error", message: "Job must be completed before submitting a review" });
+    return res.status(400).json({ status: "error", message: "Task must be completed before submitting a review" });
   }
   if (job.isReviewed) {
-    return res.status(400).json({ status: "error", message: "You have already submitted a review for this job" });
+    return res.status(400).json({ status: "error", message: "You have already submitted a review for this task" });
   }
   if (!job.assignedWorker) {
-    return res.status(400).json({ status: "error", message: "No assigned worker found for this job" });
+    return res.status(400).json({ status: "error", message: "No assigned worker found for this task" });
   }
 
   const ratingNum = Number(rating);

@@ -4,7 +4,7 @@ const reviewSchema = new mongoose.Schema({
   jobId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Job',
-    required: [true, 'Job reference is required']
+    required: [true, 'Task reference is required']
   },
   reviewerId: {
     type: mongoose.Schema.Types.ObjectId,
