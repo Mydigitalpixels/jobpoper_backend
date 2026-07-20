@@ -377,10 +377,12 @@ const createJobCreatedNotifications = async (job, jobCreatorId) => {
     }).select("_id");
     const activeIds = new Set(activeUsers.map((u) => u._id.toString()));
 
-    const jobCreator = await User.findById(jobCreatorId).select(
-      "profile.fullName",
-    );
-    const creatorName = jobCreator?.profile?.fullName || "Someone";
+    const categoryName =
+      (job.category && typeof job.category === "object" && job.category.name) ||
+      null;
+    const notificationMessage = categoryName
+      ? `You have a new task in ${categoryName}`
+      : "You have a new task nearby";
 
     const notifications = userIds
       .filter((id) => activeIds.has(id.toString()))
@@ -388,7 +390,7 @@ const createJobCreatedNotifications = async (job, jobCreatorId) => {
         recipient: userId,
         type: "job_created",
         title: "New task near you",
-        message: `${creatorName} posted a new task: ${job.title}`,
+        message: notificationMessage,
         relatedEntityType: "Job",
         relatedEntityId: job._id,
         navigationIdentifier: `job:${job._id}`,
