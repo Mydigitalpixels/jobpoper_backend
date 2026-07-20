@@ -2541,7 +2541,13 @@ const completeJob = asyncHandler(async (req, res) => {
   const job = await Job.findById(id);
   if (!job) return res.status(404).json({ status: "error", message: "Task not found" });
   if (job.status !== "job_started") {
-    return res.status(400).json({ status: "error", message: "Task is not in progress" });
+    return res.status(400).json({
+      status: "error",
+      message:
+        job.status === "completed"
+          ? "This task is already completed"
+          : "Task is not in progress",
+    });
   }
   if (!job.assignedWorker || job.assignedWorker.toString() !== req.user._id.toString()) {
     return res.status(403).json({ status: "error", message: "You are not the assigned worker for this task" });
@@ -2552,7 +2558,14 @@ const completeJob = asyncHandler(async (req, res) => {
     return res.status(429).json({ status: "error", message: "Too many incorrect PIN attempts. Contact the customer." });
   }
 
-  if (!jobPin || jobPin.toUpperCase() !== job.jobPin) {
+  const normalizePin = (value) =>
+    String(value || "")
+      .replace(/\s+/g, "")
+      .toUpperCase();
+  const incomingPin = normalizePin(jobPin);
+  const storedPin = normalizePin(job.jobPin);
+
+  if (!incomingPin || !storedPin || incomingPin !== storedPin) {
     job.pinAttempts = (job.pinAttempts || 0) + 1;
     await job.save();
     const remaining = 5 - job.pinAttempts;
@@ -2562,21 +2575,31 @@ const completeJob = asyncHandler(async (req, res) => {
     });
   }
 
-  // PIN correct — mark completed
-  job.status = "completed";
-  job.completedAt = new Date();
-  await job.save();
+  // PIN correct — mark completed (atomic update so status cannot stay stuck)
+  const completedAt = new Date();
+  const updated = await Job.findOneAndUpdate(
+    { _id: job._id, status: "job_started", assignedWorker: req.user._id },
+    { $set: { status: "completed", completedAt, pinAttempts: 0 } },
+    { new: true },
+  );
+
+  if (!updated) {
+    return res.status(409).json({
+      status: "error",
+      message: "Could not complete this task. It may have already been completed.",
+    });
+  }
 
   // Notify the job owner to leave a review (in-app + push)
   try {
     const notif = await Notification.create({
-      recipient: job.postedBy,
+      recipient: updated.postedBy,
       type: "job_completed",
       title: "Task Completed!",
-      message: `Your task "${job.title}" has been completed. Please leave a review!`,
+      message: `Your task "${updated.title}" has been marked completed. Please leave a review for the professional.`,
       relatedEntityType: "Job",
-      relatedEntityId: job._id,
-      navigationIdentifier: `job:${job._id}`,
+      relatedEntityId: updated._id,
+      navigationIdentifier: `job:${updated._id}`,
       isRead: false,
     });
     sendPushToUserForNotification(notif.recipient, notif, Device).catch((e) =>
@@ -2589,7 +2612,11 @@ const completeJob = asyncHandler(async (req, res) => {
   res.status(200).json({
     status: "success",
     message: "Task completed successfully!",
-    data: { jobId: job._id, status: job.status, completedAt: job.completedAt },
+    data: {
+      jobId: updated._id,
+      status: updated.status,
+      completedAt: updated.completedAt,
+    },
   });
 });
 
@@ -2643,6 +2670,34 @@ const submitReview = asyncHandler(async (req, res) => {
   // Mark job as reviewed
   job.isReviewed = true;
   await job.save();
+
+  // Notify the worker about the new review (in-app + push)
+  try {
+    const reviewer = await User.findById(req.user._id).select("profile.fullName");
+    const reviewerName = reviewer?.profile?.fullName || "A customer";
+    const starsLabel = `${ratingNum} star${ratingNum !== 1 ? "s" : ""}`;
+    const commentNote =
+      comment && String(comment).trim()
+        ? ` Comment: "${String(comment).trim().slice(0, 120)}"`
+        : "";
+    const workerId = job.assignedWorker._id;
+
+    const notif = await Notification.create({
+      recipient: workerId,
+      type: "job_review",
+      title: "New Review Received",
+      message: `${reviewerName} rated you ${starsLabel} for "${job.title}".${commentNote}`,
+      relatedEntityType: "Job",
+      relatedEntityId: job._id,
+      navigationIdentifier: `worker-profile:${workerId}`,
+      isRead: false,
+    });
+    sendPushToUserForNotification(notif.recipient, notif, Device).catch((e) =>
+      console.warn("[FCM] job_review push failed", e && e.message),
+    );
+  } catch (error) {
+    console.error("Error creating job_review notification:", error);
+  }
 
   res.status(201).json({
     status: "success",
