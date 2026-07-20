@@ -118,6 +118,10 @@ const buildAdminJobDetail = (job) => ({
         phoneNumber: entry.user?.phoneNumber || "",
         fullName: entry.user?.profile?.fullName || "",
         notedAt: entry.notedAt || null,
+        proposedPrice:
+          entry.proposedPrice !== undefined && entry.proposedPrice !== null
+            ? entry.proposedPrice
+            : null,
       }))
     : [],
   updatedAt: job.updatedAt,

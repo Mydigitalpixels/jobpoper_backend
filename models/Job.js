@@ -188,7 +188,13 @@ jobSchema.add({
   interestedUsers: [
     {
       user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-      notedAt: { type: Date, default: Date.now }
+      notedAt: { type: Date, default: Date.now },
+      // Worker's proposed price; null/undefined = accepts client's offered price
+      proposedPrice: {
+        type: Number,
+        default: null,
+        min: [0, 'Proposed price cannot be negative'],
+      },
     }
   ]
 });

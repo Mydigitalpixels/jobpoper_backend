@@ -422,6 +422,7 @@ const createJobCreatedNotifications = async (job, jobCreatorId) => {
 // @access  Private
 const showInterestInJob = asyncHandler(async (req, res) => {
   const { id } = req.params;
+  const { proposedPrice } = req.body || {};
 
   try {
     const job = await Job.findById(id);
@@ -452,8 +453,31 @@ const showInterestInJob = asyncHandler(async (req, res) => {
       });
     }
 
+    // Optional custom offer from the worker; omit/null = accept client's price
+    let normalizedProposedPrice = null;
+    if (proposedPrice !== undefined && proposedPrice !== null && proposedPrice !== "") {
+      const parsed = Number(proposedPrice);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        return res.status(400).json({
+          status: "error",
+          message: "Please enter a valid proposed price",
+        });
+      }
+      if (parsed === 0) {
+        return res.status(400).json({
+          status: "error",
+          message: "Proposed price must be greater than zero",
+        });
+      }
+      normalizedProposedPrice = Math.round(parsed * 100) / 100;
+    }
+
     job.interestedUsers = job.interestedUsers || [];
-    job.interestedUsers.push({ user: req.user._id, notedAt: new Date() });
+    job.interestedUsers.push({
+      user: req.user._id,
+      notedAt: new Date(),
+      proposedPrice: normalizedProposedPrice,
+    });
     await job.save();
 
     // Create notification for job owner
@@ -463,6 +487,10 @@ const showInterestInJob = asyncHandler(async (req, res) => {
         "profile.fullName",
       );
       const interestedUserName = interestedUser?.profile?.fullName || "Someone";
+      const priceNote =
+        normalizedProposedPrice != null
+          ? ` with a proposed price of ${normalizedProposedPrice}`
+          : "";
 
       // Create notification for job owner about this interest
       // Note: We don't check for duplicates here because the function already prevents
@@ -471,7 +499,7 @@ const showInterestInJob = asyncHandler(async (req, res) => {
         recipient: job.postedBy,
         type: "job_interest",
         title: "New Interest in Your Task",
-        message: `${interestedUserName} showed interest in your task: ${job.title}`,
+        message: `${interestedUserName} showed interest in your task: ${job.title}${priceNote}`,
         relatedEntityType: "Job",
         relatedEntityId: job._id,
         navigationIdentifier: `job:${job._id}`,
@@ -488,6 +516,9 @@ const showInterestInJob = asyncHandler(async (req, res) => {
     res.status(201).json({
       status: "success",
       message: "Interest recorded successfully",
+      data: {
+        proposedPrice: normalizedProposedPrice,
+      },
     });
   } catch (error) {
     res.status(500).json({
