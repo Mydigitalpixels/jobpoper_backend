@@ -665,6 +665,108 @@ const reviewVerificationRequest = asyncHandler(async (req, res) => {
   });
 });
 
+// @desc    Block or unblock a user (hard block toggles isActive)
+// @route   PATCH /api/admin/users/:userId/block
+// @access  Private/Admin
+const setUserBlockStatus = asyncHandler(async (req, res) => {
+  const { blocked } = req.body; // true = block, false = unblock
+  const user = await User.findById(req.params.userId);
+
+  if (!user) {
+    return res.status(404).json({ status: "error", message: "User not found" });
+  }
+  if (user.role === "admin") {
+    return res
+      .status(400)
+      .json({ status: "error", message: "Admin accounts cannot be blocked" });
+  }
+
+  user.isActive = blocked === true || blocked === "true" ? false : true;
+  await user.save();
+
+  res.status(200).json({
+    status: "success",
+    message: user.isActive ? "User unblocked" : "User blocked",
+    data: { user: buildAdminUser(user) },
+  });
+});
+
+// @desc    List reports for admin review
+// @route   GET /api/admin/reports
+// @access  Private/Admin
+const getAdminReports = asyncHandler(async (req, res) => {
+  const Report = require("../models/Report");
+  const page = parseInt(req.query.page, 10) || 1;
+  const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
+  const skip = (page - 1) * limit;
+
+  const filter = {};
+  if (req.query.status === "open" || req.query.status === "resolved") {
+    filter.status = req.query.status;
+  }
+
+  const reports = await Report.find(filter)
+    .populate("reporter", "profile.fullName profile.profileImage phoneNumber workerId")
+    .populate("reportedUser", "profile.fullName profile.profileImage phoneNumber workerId isActive")
+    .populate("jobId", "title status")
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit);
+
+  const total = await Report.countDocuments(filter);
+  const totalPages = Math.ceil(total / limit);
+
+  res.status(200).json({
+    status: "success",
+    data: {
+      reports,
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalReports: total,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+    },
+  });
+});
+
+// @desc    Update a report's status (open/resolved)
+// @route   PATCH /api/admin/reports/:reportId
+// @access  Private/Admin
+const updateReportStatus = asyncHandler(async (req, res) => {
+  const Report = require("../models/Report");
+  const { status, resolutionNote } = req.body;
+
+  if (!["open", "resolved"].includes(status)) {
+    return res
+      .status(400)
+      .json({ status: "error", message: "Status must be 'open' or 'resolved'" });
+  }
+
+  const report = await Report.findById(req.params.reportId);
+  if (!report) {
+    return res.status(404).json({ status: "error", message: "Report not found" });
+  }
+
+  report.status = status;
+  report.resolutionNote = (resolutionNote || "").trim();
+  if (status === "resolved") {
+    report.resolvedBy = req.user._id;
+    report.resolvedAt = new Date();
+  } else {
+    report.resolvedBy = null;
+    report.resolvedAt = null;
+  }
+  await report.save();
+
+  res.status(200).json({
+    status: "success",
+    message: `Report marked ${status}`,
+    data: { report },
+  });
+});
+
 module.exports = {
   getAdminSetupStatus,
   bootstrapAdmin,
@@ -678,4 +780,7 @@ module.exports = {
   reviewBusinessProfileRequest,
   getVerificationRequests,
   reviewVerificationRequest,
+  setUserBlockStatus,
+  getAdminReports,
+  updateReportStatus,
 };

@@ -14,6 +14,7 @@ const menuItems = [
   { id: "professionals", label: "Professionals" },
   { id: "jobs", label: "Tasks" },
   { id: "verifications", label: "Verification Requests" },
+  { id: "reports", label: "Reports" },
 ];
 
 const dashboardFallback = {
@@ -86,6 +87,11 @@ function App() {
   const [selectedVerification, setSelectedVerification] = useState(null);
   const [reviewForm, setReviewForm] = useState({ status: "approved", reviewNotes: "" });
   const [actionMessage, setActionMessage] = useState("");
+  const [blockActionId, setBlockActionId] = useState("");
+  const [reports, setReports] = useState([]);
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [reportStatusFilter, setReportStatusFilter] = useState("open");
+  const [reportActionId, setReportActionId] = useState("");
 
   const normalUsers = useMemo(
     () => users.filter((user) => !user.isProfessional),
@@ -243,6 +249,14 @@ function App() {
     loadSetupStatus();
   }, [token]);
 
+  // Load reports whenever the Reports view opens or its status filter changes.
+  useEffect(() => {
+    if (token && activeView === "reports") {
+      loadReports(token, reportStatusFilter);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, activeView, reportStatusFilter]);
+
   const handleLogin = async (event) => {
     event.preventDefault();
     setAuthError("");
@@ -375,6 +389,86 @@ function App() {
       setPageError(error.message);
     } finally {
       setImageActionPath("");
+    }
+  };
+
+  const handleToggleBlock = async (userId, isActive) => {
+    if (!userId) {
+      return;
+    }
+    const blocking = isActive; // active → block; inactive → unblock
+    const confirmed = window.confirm(
+      blocking
+        ? "Block this user? They will be logged out and unable to sign in until unblocked."
+        : "Unblock this user and restore their access?",
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setBlockActionId(userId);
+    setActionMessage("");
+    setPageError("");
+
+    try {
+      await apiRequest(`/admin/users/${userId}/block`, {
+        token,
+        method: "PATCH",
+        body: { blocked: blocking },
+      });
+      setActionMessage(
+        blocking ? "User blocked successfully." : "User unblocked successfully.",
+      );
+      await loadProtectedData(token, { keepSelections: true });
+    } catch (error) {
+      setPageError(error.message);
+    } finally {
+      setBlockActionId("");
+    }
+  };
+
+  const loadReports = async (authToken, status = reportStatusFilter) => {
+    setReportsLoading(true);
+    setPageError("");
+    try {
+      const query = status && status !== "all" ? `?status=${status}` : "";
+      const response = await apiRequest(`/admin/reports${query}`, { token: authToken });
+      setReports(response?.data?.reports || []);
+    } catch (error) {
+      setPageError(error.message);
+    } finally {
+      setReportsLoading(false);
+    }
+  };
+
+  const handleResolveReport = async (reportId) => {
+    if (!reportId) {
+      return;
+    }
+    const resolutionNote = window.prompt(
+      "Add a resolution note for the user (optional):",
+      "",
+    );
+    // window.prompt returns null when cancelled — abort in that case.
+    if (resolutionNote === null) {
+      return;
+    }
+
+    setReportActionId(reportId);
+    setActionMessage("");
+    setPageError("");
+    try {
+      await apiRequest(`/admin/reports/${reportId}`, {
+        token,
+        method: "PATCH",
+        body: { status: "resolved", resolutionNote },
+      });
+      setActionMessage("Report marked as resolved.");
+      await loadReports(token);
+    } catch (error) {
+      setPageError(error.message);
+    } finally {
+      setReportActionId("");
     }
   };
 
@@ -713,8 +807,26 @@ function App() {
                     label="Profile Complete"
                     value={selectedUser.profile?.isProfileComplete ? "Yes" : "No"}
                   />
+                  <DetailRow
+                    label="Account Status"
+                    value={selectedUser.isActive ? "Active" : "Blocked"}
+                  />
                   <DetailRow label="Created" value={formatDate(selectedUser.createdAt)} />
                   <DetailRow label="Last Login" value={formatDate(selectedUser.lastLogin)} />
+                  {selectedUser.role !== "admin" ? (
+                    <button
+                      className={selectedUser.isActive ? "danger-button" : "primary-button"}
+                      style={{ marginTop: 12 }}
+                      onClick={() => handleToggleBlock(selectedUser.id, selectedUser.isActive)}
+                      disabled={blockActionId === selectedUser.id}
+                    >
+                      {blockActionId === selectedUser.id
+                        ? "Working..."
+                        : selectedUser.isActive
+                          ? "Block User"
+                          : "Unblock User"}
+                    </button>
+                  ) : null}
                 </div>
               ) : (
                 <EmptyPanel message="Choose a user to see details." />
@@ -789,8 +901,33 @@ function App() {
                     label="Verification Status"
                     value={selectedProfessional.verification?.status || "not_submitted"}
                   />
+                  <DetailRow
+                    label="Account Status"
+                    value={selectedProfessional.isActive ? "Active" : "Blocked"}
+                  />
                   <DetailRow label="Created" value={formatDate(selectedProfessional.createdAt)} />
                   <DetailRow label="Last Login" value={formatDate(selectedProfessional.lastLogin)} />
+                  {selectedProfessional.role !== "admin" ? (
+                    <button
+                      className={
+                        selectedProfessional.isActive ? "danger-button" : "primary-button"
+                      }
+                      style={{ marginTop: 12 }}
+                      onClick={() =>
+                        handleToggleBlock(
+                          selectedProfessional.id,
+                          selectedProfessional.isActive,
+                        )
+                      }
+                      disabled={blockActionId === selectedProfessional.id}
+                    >
+                      {blockActionId === selectedProfessional.id
+                        ? "Working..."
+                        : selectedProfessional.isActive
+                          ? "Block User"
+                          : "Unblock User"}
+                    </button>
+                  ) : null}
 
                   <div className="detail-label">
                     Work Images
@@ -965,6 +1102,102 @@ function App() {
                 </div>
               ) : (
                 <EmptyPanel message="Choose a verification request to review it." />
+              )}
+            </section>
+          </section>
+        ) : null}
+
+        {activeView === "reports" ? (
+          <section className="view-grid">
+            <section className="panel">
+              <div className="panel-header">
+                <h3>User Reports</h3>
+                <div className="report-filter">
+                  {["open", "resolved", "all"].map((status) => (
+                    <button
+                      key={status}
+                      className={
+                        reportStatusFilter === status
+                          ? "chip-button active"
+                          : "chip-button"
+                      }
+                      onClick={() => setReportStatusFilter(status)}
+                    >
+                      {status[0].toUpperCase() + status.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {reportsLoading ? (
+                <EmptyPanel message="Loading reports..." />
+              ) : reports.length ? (
+                <div className="report-list">
+                  {reports.map((report) => {
+                    const reporterName =
+                      report.reporter?.profile?.fullName ||
+                      report.reporter?.phoneNumber ||
+                      "Unknown";
+                    const reportedName =
+                      report.reportedUser?.profile?.fullName ||
+                      report.reportedUser?.phoneNumber ||
+                      "—";
+                    const jobTitle = report.jobId?.title || "—";
+                    const isResolved = report.status === "resolved";
+                    return (
+                      <article key={report._id} className="report-card">
+                        <div className="report-card-head">
+                          <strong>{jobTitle}</strong>
+                          <span
+                            className={
+                              isResolved ? "badge badge-success" : "badge badge-warning"
+                            }
+                          >
+                            {isResolved ? "Resolved" : "Open"}
+                          </span>
+                        </div>
+                        <p className="report-meta">
+                          Reporter: {reporterName} &nbsp;•&nbsp; Reported: {reportedName}
+                        </p>
+                        {report.description ? (
+                          <p className="report-desc">{report.description}</p>
+                        ) : null}
+                        {report.images?.length ? (
+                          <div className="image-grid">
+                            {report.images.map((img, idx) => (
+                              <ImageCard
+                                key={idx}
+                                label={`Image ${idx + 1}`}
+                                src={buildUploadUrl(img)}
+                              />
+                            ))}
+                          </div>
+                        ) : null}
+                        {report.resolutionNote ? (
+                          <p className="report-resolution">
+                            <strong>Admin response:</strong> {report.resolutionNote}
+                          </p>
+                        ) : null}
+                        <div className="report-card-foot">
+                          <span className="report-date">{formatDate(report.createdAt)}</span>
+                          {!isResolved ? (
+                            <button
+                              className="primary-button"
+                              onClick={() => handleResolveReport(report._id)}
+                              disabled={reportActionId === report._id}
+                            >
+                              {reportActionId === report._id
+                                ? "Working..."
+                                : "Mark Resolved"}
+                            </button>
+                          ) : null}
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : (
+                <EmptyPanel message="No reports found." />
               )}
             </section>
           </section>

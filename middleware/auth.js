@@ -33,10 +33,15 @@ const protect = async (req, res, next) => {
         });
       }
 
+      // Hard block: a blocked user carrying a still-valid token is rejected
+      // with a distinct code so the app can force a logout + show the
+      // "You are blocked" modal on its next authenticated request.
       if (!user.isActive) {
-        return res.status(401).json({
+        return res.status(403).json({
           status: 'error',
-          message: 'User account is deactivated'
+          code: 'ACCOUNT_BLOCKED',
+          message:
+            'Your account has been blocked by the administrator. Please contact support if you believe this is a mistake.'
         });
       }
 

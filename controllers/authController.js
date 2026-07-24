@@ -289,11 +289,15 @@ const login = asyncHandler(async (req, res) => {
     });
   }
 
-  // Check if user is active
+  // Check if user is active. A blocked account gets a distinct, explicit
+  // message + machine-readable code so the app can show the "You are blocked"
+  // modal rather than a generic error.
   if (!user.isActive) {
-    return res.status(401).json({
+    return res.status(403).json({
       status: 'error',
-      message: 'Account is deactivated'
+      code: 'ACCOUNT_BLOCKED',
+      message:
+        'Your account has been blocked by the administrator. Please contact support if you believe this is a mistake.'
     });
   }
 

@@ -425,6 +425,15 @@ const showInterestInJob = asyncHandler(async (req, res) => {
   const { proposedPrice } = req.body || {};
 
   try {
+    // Only professionals / workers can show interest on tasks
+    if (!req.user?.isProfessional) {
+      return res.status(403).json({
+        status: "error",
+        message:
+          "Please complete your Professional / Worker profile before showing interest on tasks",
+      });
+    }
+
     const job = await Job.findById(id);
 
     if (!job || !job.isActive || job.status !== "open") {
@@ -1818,13 +1827,29 @@ const getJobById = asyncHandler(async (req, res) => {
         "assignedWorker",
         "profile.fullName profile.profileImage profile.email phoneNumber workerId rating isProfessional verification.selfieImage verification.status professionalProfile.yearsOfExperience professionalProfile.bio",
       )
-      .populate("category", "_id name slug icon");
+      .populate("category", "_id name slug icon")
+      .lean();
 
     if (!job) {
       return res.status(404).json({
         status: "error",
         message: "Task not found",
       });
+    }
+
+    // Point 13: when the authenticated poster has already reviewed this job,
+    // attach their review so Job Details can show it inline.
+    if (
+      req.user &&
+      job.isReviewed &&
+      job.postedBy &&
+      String(job.postedBy._id || job.postedBy) === String(req.user._id)
+    ) {
+      const myReview = await Review.findOne({
+        jobId: job._id,
+        reviewerId: req.user._id,
+      }).select("jobId rating comment createdAt");
+      job.myReview = myReview || null;
     }
 
     res.status(200).json({
@@ -1871,7 +1896,26 @@ const getMyJobs = asyncHandler(async (req, res) => {
       .populate("assignedWorker", "profile.fullName profile.profileImage workerId rating")
       .sort(sort)
       .skip(skip)
-      .limit(limit);
+      .limit(limit)
+      .lean();
+
+    // Point 13: attach the poster's own review for each reviewed job so the
+    // app can render it inline instead of offering "Leave a review" again.
+    const reviewedJobIds = jobs
+      .filter((j) => j.isReviewed)
+      .map((j) => j._id);
+    if (reviewedJobIds.length) {
+      const myReviews = await Review.find({
+        jobId: { $in: reviewedJobIds },
+        reviewerId: req.user._id,
+      }).select("jobId rating comment createdAt");
+      const reviewByJob = new Map(
+        myReviews.map((r) => [String(r.jobId), r])
+      );
+      for (const job of jobs) {
+        job.myReview = reviewByJob.get(String(job._id)) || null;
+      }
+    }
 
     const total = await Job.countDocuments(filter);
     const totalPages = Math.ceil(total / limit);
@@ -2716,7 +2760,7 @@ const getWorkerReviews = asyncHandler(async (req, res) => {
 
   const worker = await User.findById(userId)
     .select(
-      "profile.fullName profile.profileImage profile.location workerId rating isProfessional verification professionalProfile"
+      "profile.fullName profile.profileImage profile.location phoneNumber workerId rating isProfessional verification professionalProfile"
     )
     .populate("professionalProfile.serviceCategories", "_id name slug icon");
   if (!worker) return res.status(404).json({ status: "error", message: "Worker not found" });
@@ -2737,9 +2781,18 @@ const getWorkerReviews = asyncHandler(async (req, res) => {
         fullName: worker.profile?.fullName,
         profileImage: worker.profile?.profileImage,
         location: worker.profile?.location,
+        phoneNumber: worker.phoneNumber || null,
         workerId: worker.workerId,
         rating: worker.rating,
-        verification: { status: worker.verification?.status || "not_submitted" },
+        verification: {
+          status: worker.verification?.status || "not_submitted",
+          // Point 10: expose the approved verification selfie so the worker
+          // profile can display the vetted identity photo as the avatar.
+          selfieImage:
+            worker.verification?.status === "approved"
+              ? worker.verification?.selfieImage || null
+              : null,
+        },
         professionalProfile: {
           serviceCategories: (worker.professionalProfile?.serviceCategories || []).filter(Boolean),
           workImages: worker.professionalProfile?.workImages || [],

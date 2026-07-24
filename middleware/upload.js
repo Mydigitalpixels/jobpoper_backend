@@ -388,11 +388,51 @@ const uploadWorkImages = [
   }
 ];
 
+// Report images: up to 5 files under uploads/reports
+const uploadReportImages = [
+  upload.array('images', 5),
+  async (req, res, next) => {
+    try {
+      if (!req.files || !req.files.length) {
+        req.processedFileNames = [];
+        return next();
+      }
+      const destDir = path.join(__dirname, '..', 'uploads', 'reports');
+      const saved = [];
+      for (const file of req.files) {
+        let filename = generateFileName('report');
+        let success = false;
+        let fallbackPath = null;
+        try {
+          await processAndSave(file.buffer, destDir, filename);
+          success = true;
+        } catch (err) {
+          try {
+            filename = saveOriginalFile(file.buffer, destDir, filename, file.originalname);
+            fallbackPath = path.join(destDir, filename);
+            success = true;
+          } catch (fallbackErr) {
+            try { if (fallbackPath) fs.unlinkSync(fallbackPath); } catch (e) {}
+            console.warn('Failed to save report image:', fallbackErr.message);
+          }
+        }
+        if (success) saved.push(filename);
+      }
+      req.processedFileNames = saved;
+      return next();
+    } catch (err) {
+      req.processedFileNames = [];
+      return next(err);
+    }
+  }
+];
+
 module.exports = {
   uploadProfileImage,
   uploadJobImages,
   uploadJobFiles,
   uploadVerificationDocuments,
   uploadBusinessImages,
-  uploadWorkImages
+  uploadWorkImages,
+  uploadReportImages
 };

@@ -13,6 +13,9 @@ const {
   reviewBusinessProfileRequest,
   getVerificationRequests,
   reviewVerificationRequest,
+  setUserBlockStatus,
+  getAdminReports,
+  updateReportStatus,
 } = require("../controllers/adminController");
 const { protect, authorize } = require("../middleware/auth");
 
@@ -31,5 +34,12 @@ router.get("/business-profiles/pending", getPendingBusinessProfileRequests);
 router.put("/business-profiles/:profileId/review", reviewBusinessProfileRequest);
 router.get("/verifications", getVerificationRequests);
 router.put("/verifications/:userId/review", reviewVerificationRequest);
+
+// Block / unblock a user (hard block toggles isActive)
+router.patch("/users/:userId/block", setUserBlockStatus);
+
+// Reports moderation
+router.get("/reports", getAdminReports);
+router.patch("/reports/:reportId", updateReportStatus);
 
 module.exports = router;

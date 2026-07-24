@@ -39,7 +39,7 @@ router.get('/workers/lookup/:workerId', lookupWorker);
 // Worker reviews — public
 router.get('/workers/:userId/reviews', getWorkerReviews);
 
-router.get('/:id', getJobById);
+router.get('/:id', optionalProtect, getJobById);
 
 // Protected routes (require authentication)
 router.use(protect);
