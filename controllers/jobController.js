@@ -1837,19 +1837,21 @@ const getJobById = asyncHandler(async (req, res) => {
       });
     }
 
-    // Point 13: when the authenticated poster has already reviewed this job,
-    // attach their review so Job Details can show it inline.
-    if (
-      req.user &&
-      job.isReviewed &&
-      job.postedBy &&
-      String(job.postedBy._id || job.postedBy) === String(req.user._id)
-    ) {
-      const myReview = await Review.findOne({
-        jobId: job._id,
-        reviewerId: req.user._id,
-      }).select("jobId rating comment createdAt");
-      job.myReview = myReview || null;
+    // Attach this job's review for the poster and the assigned worker so both
+    // can see it on Task Details. Clients can edit; workers see it read-only.
+    if (req.user && job.isReviewed) {
+      const posterId = String(job.postedBy?._id || job.postedBy || "");
+      const workerId = String(
+        job.assignedWorker?._id || job.assignedWorker || ""
+      );
+      const viewerId = String(req.user._id);
+      if (viewerId === posterId || viewerId === workerId) {
+        const jobReview = await Review.findOne({ jobId: job._id })
+          .populate("reviewerId", "profile.fullName profile.profileImage")
+          .select("jobId rating comment createdAt updatedAt reviewerId")
+          .lean();
+        job.myReview = jobReview || null;
+      }
     }
 
     res.status(200).json({
@@ -1908,7 +1910,7 @@ const getMyJobs = asyncHandler(async (req, res) => {
       const myReviews = await Review.find({
         jobId: { $in: reviewedJobIds },
         reviewerId: req.user._id,
-      }).select("jobId rating comment createdAt");
+      }).select("jobId rating comment createdAt updatedAt");
       const reviewByJob = new Map(
         myReviews.map((r) => [String(r.jobId), r])
       );
@@ -2749,6 +2751,67 @@ const submitReview = asyncHandler(async (req, res) => {
   });
 });
 
+// @desc    Customer updates their review for a completed job (anytime)
+// @route   PUT /api/jobs/:id/review
+// @access  Private (job owner)
+const updateReview = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { rating, comment } = req.body;
+
+  const job = await Job.findById(id);
+  if (!job) return res.status(404).json({ status: "error", message: "Task not found" });
+  if (job.postedBy.toString() !== req.user._id.toString()) {
+    return res.status(403).json({ status: "error", message: "Not authorized" });
+  }
+  if (job.status !== "completed") {
+    return res.status(400).json({ status: "error", message: "Task must be completed before updating a review" });
+  }
+  if (!job.isReviewed) {
+    return res.status(400).json({ status: "error", message: "No review found to update. Submit a review first." });
+  }
+
+  const ratingNum = Number(rating);
+  if (!ratingNum || ratingNum < 1 || ratingNum > 5) {
+    return res.status(400).json({ status: "error", message: "Rating must be between 1 and 5" });
+  }
+
+  const existing = await Review.findOne({ jobId: id, reviewerId: req.user._id });
+  if (!existing) {
+    return res.status(404).json({ status: "error", message: "Review not found" });
+  }
+
+  const oldRating = existing.rating;
+  existing.rating = ratingNum;
+  existing.comment = comment ? String(comment).trim() : "";
+  await existing.save();
+
+  // Recalculate worker average: replace old rating with new one
+  if (oldRating !== ratingNum && existing.workerId) {
+    const worker = await User.findById(existing.workerId);
+    if (worker) {
+      const count = worker.rating?.count || 0;
+      const oldAvg = worker.rating?.average || 0;
+      if (count > 0) {
+        const newAvg =
+          Math.round(((oldAvg * count - oldRating + ratingNum) / count) * 10) / 10;
+        worker.rating = { average: newAvg, count };
+        await worker.save();
+      }
+    }
+  }
+
+  const populated = await Review.findById(existing._id)
+    .populate("reviewerId", "profile.fullName profile.profileImage")
+    .select("jobId rating comment createdAt updatedAt reviewerId")
+    .lean();
+
+  res.status(200).json({
+    status: "success",
+    message: "Review updated successfully.",
+    data: { review: populated },
+  });
+});
+
 // @desc    Get paginated reviews for a worker
 // @route   GET /api/workers/:userId/reviews
 // @access  Public
@@ -2833,5 +2896,6 @@ module.exports = {
   startJob,
   completeJob,
   submitReview,
+  updateReview,
   getWorkerReviews,
 };

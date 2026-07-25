@@ -21,6 +21,7 @@ const {
   startJob,
   completeJob,
   submitReview,
+  updateReview,
   getWorkerReviews,
 } = require('../controllers/jobController');
 
@@ -50,6 +51,7 @@ router.post('/expire-old', expireOldJobs);
 router.post('/:id/start', startJob);
 router.post('/:id/complete', completeJob);
 router.post('/:id/review', submitReview);
+router.put('/:id/review', updateReview);
 router.put('/:id', uploadJobFiles, updateJob);
 router.delete('/:id', deleteJob);
 router.put('/:id/status', updateJobStatus);
