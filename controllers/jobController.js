@@ -5,6 +5,7 @@ const Location = require("../models/Location");
 const Notification = require("../models/Notification");
 const User = require("../models/User");
 const Review = require("../models/Review");
+const Report = require("../models/Report");
 const Device = require("../models/Device");
 const {
   sendPushToUserForNotification,
@@ -1865,6 +1866,21 @@ const getJobById = asyncHandler(async (req, res) => {
       }
     }
 
+    // Attach the poster's own report for this job (client-only — never for worker).
+    if (req.user) {
+      const posterId = String(job.postedBy?._id || job.postedBy || "");
+      if (String(req.user._id) === posterId) {
+        const myReport = await Report.findOne({
+          jobId: job._id,
+          reporter: req.user._id,
+        })
+          .select("jobId description reason images status createdAt")
+          .sort({ createdAt: -1 })
+          .lean();
+        job.myReport = myReport || null;
+      }
+    }
+
     res.status(200).json({
       status: "success",
       data: {
@@ -1927,6 +1943,26 @@ const getMyJobs = asyncHandler(async (req, res) => {
       );
       for (const job of jobs) {
         job.myReview = reviewByJob.get(String(job._id)) || null;
+      }
+    }
+
+    // Attach the poster's reports for these jobs (client My Tasks list).
+    const jobIds = jobs.map((j) => j._id);
+    if (jobIds.length) {
+      const myReports = await Report.find({
+        jobId: { $in: jobIds },
+        reporter: req.user._id,
+      })
+        .select("jobId description reason images status createdAt")
+        .sort({ createdAt: -1 })
+        .lean();
+      const reportByJob = new Map();
+      for (const r of myReports) {
+        const key = String(r.jobId);
+        if (!reportByJob.has(key)) reportByJob.set(key, r);
+      }
+      for (const job of jobs) {
+        job.myReport = reportByJob.get(String(job._id)) || null;
       }
     }
 
