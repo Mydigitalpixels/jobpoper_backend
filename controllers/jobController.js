@@ -422,7 +422,7 @@ const createJobCreatedNotifications = async (job, jobCreatorId) => {
 // @access  Private
 const showInterestInJob = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { proposedPrice } = req.body || {};
+  const { proposedPrice, priceOption } = req.body || {};
 
   try {
     // Only professionals / workers can show interest on tasks
@@ -481,11 +481,21 @@ const showInterestInJob = asyncHandler(async (req, res) => {
       normalizedProposedPrice = Math.round(parsed * 100) / 100;
     }
 
+    const allowedOptions = ["accept_offered", "custom", "use_rate"];
+    let normalizedPriceOption = "accept_offered";
+    if (typeof priceOption === "string" && allowedOptions.includes(priceOption)) {
+      normalizedPriceOption = priceOption;
+    } else if (normalizedProposedPrice != null) {
+      // Legacy clients that only send proposedPrice
+      normalizedPriceOption = "custom";
+    }
+
     job.interestedUsers = job.interestedUsers || [];
     job.interestedUsers.push({
       user: req.user._id,
       notedAt: new Date(),
       proposedPrice: normalizedProposedPrice,
+      priceOption: normalizedPriceOption,
     });
     await job.save();
 
@@ -527,6 +537,7 @@ const showInterestInJob = asyncHandler(async (req, res) => {
       message: "Interest recorded successfully",
       data: {
         proposedPrice: normalizedProposedPrice,
+        priceOption: normalizedPriceOption,
       },
     });
   } catch (error) {

@@ -195,6 +195,13 @@ jobSchema.add({
         default: null,
         min: [0, 'Proposed price cannot be negative'],
       },
+      // How the worker chose their price on Express Interest
+      // accept_offered | custom | use_rate (pickup rate × distance)
+      priceOption: {
+        type: String,
+        enum: ['accept_offered', 'custom', 'use_rate'],
+        default: 'accept_offered',
+      },
     }
   ]
 });
