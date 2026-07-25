@@ -16,6 +16,8 @@ JWT_SECRET=your-super-secret-jwt-key-here
 CORS_ORIGIN=http://localhost:3000
 
 # Twilio Configuration
+# OTP SMS brand text comes from Verify Service Friendly Name (or customFriendlyName in code).
+# In Twilio Console → Verify → Services → set Friendly Name to "MakeMy Task" (recommended).
 TWILIO_ACCOUNT_SID=your-twilio-account-sid
 TWILIO_AUTH_TOKEN=your-twilio-auth-token
 TWILIO_SERVICE_ID=your-twilio-verify-service-id
