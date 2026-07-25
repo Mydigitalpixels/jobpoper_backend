@@ -122,19 +122,19 @@ const userSchema = new mongoose.Schema({
   },
   workerId: {
     type: String,
-    unique: true,
-    sparse: true,
     uppercase: true,
     trim: true,
     minlength: 5,
     maxlength: 5
-    // No `default: null` here on purpose: Mongoose would explicitly set this
-    // field to null on every new user, and MongoDB's sparse index only
-    // excludes documents where the field is truly absent (not explicit
-    // null). With a default of null, only the first-ever user could be
-    // created — every user after that hit a duplicate-key error on this
-    // index during registration. Leaving it unset keeps the field genuinely
-    // absent until a Worker ID is actually assigned.
+    // Uniqueness is enforced by a PARTIAL unique index declared below
+    // (partialFilterExpression: workerId is a string), NOT by a field-level
+    // `unique`/`sparse` option. A plain sparse unique index still indexes
+    // documents that store an explicit `null`, so legacy rows created before
+    // the `default: null` was removed would collide on null and break saves.
+    // A partial index only covers documents where workerId is an actual
+    // string, so any number of users without a workerId can coexist.
+    // NOTE: `default: null` is intentionally omitted so the field stays
+    // genuinely absent until a Worker ID is assigned.
   },
   rating: {
     average: { type: Number, default: 0, min: 0, max: 5 },
@@ -214,5 +214,13 @@ userSchema.methods.comparePin = async function(candidatePin) {
 // index warning. Keep the unique constraint on the field and only keep the
 // createdAt index here.
 userSchema.index({ createdAt: -1 });
+
+// Enforce workerId uniqueness only for documents that actually have one.
+// A partial index (unlike a sparse index) ignores rows where workerId is
+// null/absent, so users without an assigned Worker ID never collide.
+userSchema.index(
+  { workerId: 1 },
+  { unique: true, partialFilterExpression: { workerId: { $type: 'string' } } }
+);
 
 module.exports = mongoose.model('User', userSchema);
