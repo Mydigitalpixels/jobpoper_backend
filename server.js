@@ -17,6 +17,9 @@ app.use(express.urlencoded({ extended: true }));
 // Static serving for uploaded files
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
+// Public marketing pages (smart store redirect for referral shares)
+app.use(express.static(path.join(__dirname, "public")));
+
 const adminDistPath = path.join(__dirname, "admin-panel", "dist");
 const hasAdminBuild = require("fs").existsSync(adminDistPath);
 
@@ -61,6 +64,12 @@ app.get("/", (req, res) => {
     version: "1.0.0",
     status: "success",
   });
+});
+
+// Smart download page used in referral share messages.
+// iOS / Android auto-redirect via public/download.html; desktop shows both buttons.
+app.get(["/download", "/download/"], (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "download.html"));
 });
 
 if (hasAdminBuild) {
