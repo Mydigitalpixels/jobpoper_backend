@@ -48,12 +48,31 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   }
 
   // --- 2. Ensure the partial unique index exists (idempotent) ---
+  // Mongoose may already have created the same index as "referralCode_1".
+  // MongoDB rejects createIndex when the same key pattern exists under a
+  // different name — treat that as success and continue.
   if (!DRY) {
-    await users.createIndex(
-      { referralCode: 1 },
-      { name: INDEX_NAME, unique: true, partialFilterExpression: { referralCode: { $type: 'string' } } }
+    const existing = await users.indexes();
+    const alreadyThere = existing.some(
+      (idx) =>
+        idx.key &&
+        idx.key.referralCode === 1 &&
+        idx.unique === true &&
+        idx.partialFilterExpression &&
+        idx.partialFilterExpression.referralCode &&
+        idx.partialFilterExpression.referralCode.$type === 'string'
     );
-    console.log(`✅ Ensured partial unique index "${INDEX_NAME}".`);
+
+    if (alreadyThere) {
+      const name = existing.find((idx) => idx.key && idx.key.referralCode === 1)?.name;
+      console.log(`✅ Partial unique index already present ("${name}"). Skipping create.`);
+    } else {
+      await users.createIndex(
+        { referralCode: 1 },
+        { name: INDEX_NAME, unique: true, partialFilterExpression: { referralCode: { $type: 'string' } } }
+      );
+      console.log(`✅ Ensured partial unique index "${INDEX_NAME}".`);
+    }
   }
 
   // --- 3. Count remaining work ---
