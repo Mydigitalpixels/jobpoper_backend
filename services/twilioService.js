@@ -29,9 +29,6 @@ function getTwilioClient() {
 
 const TEST_OTP = "000000";
 const TEST_PHONE_NUMBER = "+923204099356";
-// Shown in Twilio Verify SMS: "Your MakeMy Task verification code is: …"
-// Overrides the Verify Service Friendly Name (still "Jobpoper" in Twilio Console).
-const SMS_BRAND_NAME = "MakeMy Task";
 
 function isTestOtpEnabled() {
   // Hardcoded OTP for any phone. Set ALLOW_TEST_OTP=false to disable in production.
@@ -109,13 +106,16 @@ class TwilioService {
         };
       }
 
-      // Use Twilio Verify service
+      // Use Twilio Verify service.
+      // Do NOT pass customFriendlyName — that requires Twilio's paid
+      // "Custom Company Name" feature (error 60204 if enabled without approval).
+      // Set the SMS brand in Twilio Console → Verify → Service → Friendly Name
+      // (e.g. "MakeMy Task") instead.
       const verification = await client.verify.v2
         .services(process.env.TWILIO_SERVICE_ID)
         .verifications.create({
           to: phoneNumber,
           channel: "sms",
-          customFriendlyName: SMS_BRAND_NAME,
         });
 
       // Save verification record to database (without code since Twilio handles it)
