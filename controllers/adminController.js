@@ -303,21 +303,67 @@ const bootstrapAdmin = asyncHandler(async (req, res) => {
   });
 });
 
-// @desc    Get admin users list
+// @desc    Get admin users list (paginated, searchable)
 // @route   GET /api/admin/users
 // @access  Private/Admin
 const getAdminUsers = asyncHandler(async (req, res) => {
-  const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
+  const escapeRegExp = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-  const users = await User.find()
-    .sort({ createdAt: -1 })
-    .limit(limit)
-    .select("-pin");
+  const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
+  const search = (req.query.search || "").trim();
+  // "all" | "users" (non-professional) | "professionals"
+  const type = (req.query.type || "all").toLowerCase();
+
+  const buildSearchOr = (term) => {
+    if (!term) return null;
+    const rx = { $regex: escapeRegExp(term), $options: "i" };
+    const digits = term.replace(/\D/g, "");
+    const or = [
+      { "profile.fullName": rx },
+      { phoneNumber: rx },
+      { referralCode: rx },
+      { workerId: rx },
+    ];
+    // Digits-only match so "305…" finds a stored "+92305…"
+    if (digits.length >= 4) {
+      or.push({ phoneNumber: { $regex: escapeRegExp(digits) } });
+    }
+    return or;
+  };
+
+  const searchOr = buildSearchOr(search);
+  const withSearch = (base) => (searchOr ? { ...base, $or: searchOr } : base);
+
+  const query = withSearch({});
+  if (type === "professionals") query.isProfessional = true;
+  else if (type === "users") query.isProfessional = { $ne: true };
+
+  const [total, users, totalUsers, totalProfessionals] = await Promise.all([
+    User.countDocuments(query),
+    User.find(query)
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .select("-pin"),
+    // Tab badge counts (ignore type; still respect search)
+    User.countDocuments(withSearch({ isProfessional: { $ne: true } })),
+    User.countDocuments(withSearch({ isProfessional: true })),
+  ]);
 
   res.status(200).json({
     status: "success",
     data: {
       users: users.map(buildAdminUser),
+      page,
+      limit,
+      total,
+      hasMore: page * limit < total,
+      counts: {
+        users: totalUsers,
+        professionals: totalProfessionals,
+        all: totalUsers + totalProfessionals,
+      },
     },
   });
 });
