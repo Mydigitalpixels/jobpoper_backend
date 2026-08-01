@@ -49,6 +49,9 @@ app.use("/devices", devicesRouter);
 const reportsRouter = require("./routes/reports");
 app.use("/api/reports", reportsRouter);
 app.use("/reports", reportsRouter);
+const referralsRouter = require("./routes/referrals");
+app.use("/api/referrals", referralsRouter);
+app.use("/referrals", referralsRouter);
 app.use("/api/health", require("./routes/health"));
 
 // Basic route

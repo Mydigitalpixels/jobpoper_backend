@@ -6,6 +6,7 @@ const Job = require("../models/Job");
 const BusinessProfile = require("../models/BusinessProfile");
 const Notification = require("../models/Notification");
 const Device = require("../models/Device");
+const jwt = require("jsonwebtoken");
 const { generateToken } = require("../middleware/auth");
 const { sendPushToUserForNotification } = require("../services/pushNotificationService");
 
@@ -23,6 +24,9 @@ const buildAdminUser = (user) => ({
   role: user.role,
   isProfessional: !!user.isProfessional,
   workerId: user.workerId || null,
+  referralCode: user.referralCode || null,
+  referredBy: user.referredBy || null,
+  referredAt: user.referredAt || null,
   rating: {
     average: user.rating?.average || 0,
     count: user.rating?.count || 0,
@@ -324,7 +328,8 @@ const getAdminUsers = asyncHandler(async (req, res) => {
 const getAdminUserById = asyncHandler(async (req, res) => {
   const user = await User.findById(req.params.userId)
     .select("-pin")
-    .populate("professionalProfile.serviceCategories", "name slug");
+    .populate("professionalProfile.serviceCategories", "name slug")
+    .populate("referredBy", "profile.fullName referralCode");
 
   if (!user) {
     return res.status(404).json({
@@ -332,6 +337,17 @@ const getAdminUserById = asyncHandler(async (req, res) => {
       message: "User not found",
     });
   }
+
+  // Referral summary for the detail view.
+  const totalReferrals = await User.countDocuments({ referredBy: user._id });
+  const referredByUser =
+    user.referredBy && typeof user.referredBy === "object"
+      ? {
+          id: user.referredBy._id,
+          fullName: user.referredBy.profile?.fullName || "",
+          referralCode: user.referredBy.referralCode || null,
+        }
+      : null;
 
   res.status(200).json({
     status: "success",
@@ -341,9 +357,161 @@ const getAdminUserById = asyncHandler(async (req, res) => {
         profile: user.profile,
         verification: buildVerificationPayload(user),
         professionalProfile: buildProfessionalProfile(user),
+        referral: {
+          referralCode: user.referralCode || null,
+          totalReferrals,
+          referredBy: referredByUser,
+          referredAt: user.referredAt || null,
+        },
       },
     },
   });
+});
+
+// @desc    Paginated list of users referred by :userId (admin, unmasked)
+// @route   GET /api/admin/users/:userId/referrals
+// @access  Admin
+const getUserReferrals = asyncHandler(async (req, res) => {
+  const {
+    buildAdminReferredUser,
+    REFERRED_USER_SELECT,
+  } = require("../utils/referralPresenter");
+
+  const escapeRegExp = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  const owner = await User.findById(req.params.userId).select(
+    "_id profile.fullName referralCode phoneNumber"
+  );
+  if (!owner) {
+    return res.status(404).json({
+      status: "error",
+      code: "USER_NOT_FOUND",
+      message: "User not found",
+    });
+  }
+
+  const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 25, 1), 100);
+  const search = (req.query.search || "").trim();
+  const sort = req.query.sort || "newest";
+  const status = req.query.status || "all";
+
+  const query = { referredBy: owner._id };
+  if (search) {
+    const rx = { $regex: escapeRegExp(search), $options: "i" };
+    query.$or = [
+      { "profile.fullName": rx },
+      { "profile.email": rx },
+      { phoneNumber: rx },
+    ];
+  }
+  if (status === "active") query.isActive = { $ne: false };
+  else if (status === "inactive") query.isActive = false;
+  else if (status === "pending_profile") query["profile.isProfileComplete"] = false;
+
+  const sortMap = {
+    newest: { createdAt: -1 },
+    oldest: { createdAt: 1 },
+    name_asc: { "profile.fullName": 1 },
+    name_desc: { "profile.fullName": -1 },
+  };
+
+  const total = await User.countDocuments(query);
+  const users = await User.find(query)
+    .select(REFERRED_USER_SELECT)
+    .sort(sortMap[sort] || sortMap.newest)
+    .skip((page - 1) * limit)
+    .limit(limit)
+    .lean();
+
+  res.status(200).json({
+    status: "success",
+    data: {
+      user: {
+        id: owner._id,
+        fullName: owner.profile?.fullName || "",
+        referralCode: owner.referralCode || null,
+        phoneNumber: owner.phoneNumber || "",
+      },
+      totalReferrals: total,
+      referrals: users.map(buildAdminReferredUser),
+      page,
+      limit,
+      total,
+      hasMore: page * limit < total,
+    },
+  });
+});
+
+// @desc    Issue a short-lived single-use-window token so the export URL can be
+//          opened in the system browser (which cannot send the auth header).
+// @route   GET /api/admin/users/:userId/referrals/export-token
+// @access  Admin
+const issueReferralExportToken = asyncHandler(async (req, res) => {
+  const token = jwt.sign(
+    { purpose: "referral_export", userId: String(req.params.userId) },
+    process.env.JWT_SECRET,
+    { expiresIn: "60s" }
+  );
+  res.status(200).json({ status: "success", data: { token } });
+});
+
+// @desc    Stream a PDF of :userId's referral list
+// @route   GET /api/admin/users/:userId/referrals/export
+// @access  Admin session OR a valid signed export token (?t=)
+const exportUserReferralsPdf = asyncHandler(async (req, res) => {
+  const { streamReferralPdf } = require("../services/referralPdfService");
+  const EXPORT_CAP = 10000;
+
+  // This route is reachable without the Authorization header (browser
+  // navigation), so authorise via the signed token when there is no admin
+  // session on the request.
+  if (!(req.user && req.user.role === "admin")) {
+    try {
+      const decoded = jwt.verify(req.query.t || "", process.env.JWT_SECRET);
+      if (
+        decoded.purpose !== "referral_export" ||
+        String(decoded.userId) !== String(req.params.userId)
+      ) {
+        throw new Error("bad token");
+      }
+    } catch (_) {
+      return res.status(401).json({
+        status: "error",
+        code: "EXPORT_TOKEN_INVALID",
+        message: "This export link is invalid or has expired.",
+      });
+    }
+  }
+
+  const owner = await User.findById(req.params.userId).select(
+    "_id profile.fullName referralCode phoneNumber"
+  );
+  if (!owner) {
+    return res.status(404).json({
+      status: "error",
+      code: "USER_NOT_FOUND",
+      message: "User not found",
+    });
+  }
+
+  const total = await User.countDocuments({ referredBy: owner._id });
+  if (total === 0) {
+    return res.status(409).json({
+      status: "error",
+      code: "REFERRAL_LIST_EMPTY",
+      message: "This user has no referrals to export.",
+    });
+  }
+  if (total > EXPORT_CAP) {
+    return res.status(413).json({
+      status: "error",
+      code: "REFERRAL_EXPORT_TOO_LARGE",
+      message: "This list is too large to export directly. Please contact support.",
+    });
+  }
+
+  await streamReferralPdf(res, { owner, total });
 });
 
 // @desc    Delete a single work image from a professional's profile
@@ -773,6 +941,9 @@ module.exports = {
   getDashboardSummary,
   getAdminUsers,
   getAdminUserById,
+  getUserReferrals,
+  issueReferralExportToken,
+  exportUserReferralsPdf,
   deleteProfessionalWorkImage,
   getAdminJobs,
   getAdminJobById,

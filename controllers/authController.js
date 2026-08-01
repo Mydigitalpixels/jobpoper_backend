@@ -10,7 +10,7 @@ const TwilioService = require('../services/twilioService');
 const { sendPushToUserForNotification } = require('../services/pushNotificationService');
 const { generateToken } = require('../middleware/auth');
 
-const { generateUniqueWorkerId } = require('../utils/generateUniqueId');
+const { generateUniqueWorkerId, generateUniqueReferralCode } = require('../utils/generateUniqueId');
 
 const buildUserResponse = (user) => {
   let professionalProfile = user.professionalProfile || null;
@@ -34,6 +34,7 @@ const buildUserResponse = (user) => {
     verification: user.verification,
     vehiclePreference: user.vehiclePreference,
     workerId: user.workerId || null,
+    referralCode: user.referralCode || null,
     rating: user.rating || { average: 0, count: 0 },
     isProfessional: user.isProfessional || false,
     professionalProfile,
@@ -238,13 +239,40 @@ const register = asyncHandler(async (req, res) => {
   }
 
   try {
-    // Create user
-    const user = await User.create({
+    // Generate a unique referral code for every new account. Registration
+    // must never fail because code generation failed — a user without a code
+    // is recoverable (backfill script / lazy self-heal in /referrals/me),
+    // whereas a failed registration is a lost customer. So we swallow any
+    // generator error and let the field stay absent (the index is partial).
+    let referralCode;
+    try {
+      referralCode = await generateUniqueReferralCode(User);
+    } catch (genErr) {
+      console.error('[REGISTER] Referral code generation failed; creating user without one', genErr.message);
+      referralCode = undefined;
+    }
+
+    // Create user. Retry ONCE on the (astronomically unlikely) race where a
+    // concurrent registration claimed the same code between probe and write.
+    const buildDoc = (code) => ({
       phoneNumber,
       pin,
       isPhoneVerified: true,
-      isVerified: false
+      isVerified: false,
+      ...(code ? { referralCode: code } : {}),
     });
+
+    let user;
+    try {
+      user = await User.create(buildDoc(referralCode));
+    } catch (err) {
+      if (err && err.code === 11000 && err.keyPattern && err.keyPattern.referralCode) {
+        const retryCode = await generateUniqueReferralCode(User);
+        user = await User.create(buildDoc(retryCode));
+      } else {
+        throw err;
+      }
+    }
 
     // Generate JWT token
     const token = generateToken(user._id);
@@ -403,6 +431,44 @@ const completeProfile = asyncHandler(async (req, res) => {
       });
     }
 
+    // --- Optional referral attribution ------------------------------------
+    // Validate BEFORE persisting the profile so an invalid code leaves the
+    // whole request a clean no-op. Only resolves a referrer here; the actual
+    // write happens atomically after the profile save (write-once guard).
+    let referrerId = null;
+    const rawReferralCode = (req.body.referralCode || '').trim().toUpperCase();
+
+    if (rawReferralCode) {
+      if (!/^[A-Z0-9]{5}$/.test(rawReferralCode)) {
+        return res.status(400).json({
+          status: 'error',
+          code: 'REFERRAL_CODE_MALFORMED',
+          message: 'Referral code must be 5 letters or numbers.',
+        });
+      }
+
+      const referrer = await User.findOne({ referralCode: rawReferralCode })
+        .select('_id isActive');
+
+      if (!referrer || referrer.isActive === false) {
+        return res.status(404).json({
+          status: 'error',
+          code: 'REFERRAL_CODE_INVALID',
+          message: 'This referral code is not valid. Please check and try again.',
+        });
+      }
+
+      if (String(referrer._id) === String(user._id)) {
+        return res.status(400).json({
+          status: 'error',
+          code: 'REFERRAL_SELF_REFERENCE',
+          message: 'You cannot use your own referral code.',
+        });
+      }
+
+      referrerId = referrer._id;
+    }
+
     // Update profile
     console.log("[PROFILE] Updating profile fields for user", user._id, {
       hasLocation: !!location,
@@ -435,6 +501,21 @@ const completeProfile = asyncHandler(async (req, res) => {
     console.log("[PROFILE] Saving updated profile to DB for user", user._id);
     await user.save();
     console.log("[PROFILE] Profile save successful for user", user._id);
+
+    // Guarded, atomic, write-once referral attribution. matchedCount === 0
+    // means a concurrent request already set referredBy — a no-op success,
+    // not an error. If already set, we simply leave the existing attribution.
+    if (referrerId) {
+      await User.updateOne(
+        { _id: user._id, referredBy: null },
+        { $set: { referredBy: referrerId, referredAt: new Date() } }
+      );
+      // Reflect on the in-memory doc so buildUserResponse is consistent.
+      if (user.referredBy == null) {
+        user.referredBy = referrerId;
+        user.referredAt = new Date();
+      }
+    }
 
     if (user.isProfessional) {
       await populateServiceCategories(user);

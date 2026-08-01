@@ -46,4 +46,31 @@ const generateUniqueJobPin = async (JobModel) => {
   return pin;
 };
 
-module.exports = { generateId, generateUniqueWorkerId, generateUniqueJobPin };
+/**
+ * Generates a unique Referral Code not already used in the User collection.
+ * Format is deliberately identical to the Worker ID (5-char A-Z0-9) but the
+ * VALUE is independent: a user's referral code is never their worker ID.
+ * @param {Model} UserModel - Mongoose User model
+ * @returns {Promise<string>}
+ */
+const generateUniqueReferralCode = async (UserModel) => {
+  let code;
+  let exists = true;
+  let attempts = 0;
+  while (exists) {
+    if (++attempts > 10) {
+      throw new Error('REFERRAL_CODE_GENERATION_EXHAUSTED');
+    }
+    code = generateId(5);
+    const doc = await UserModel.findOne({ referralCode: code }).select('_id');
+    exists = !!doc;
+  }
+  return code;
+};
+
+module.exports = {
+  generateId,
+  generateUniqueWorkerId,
+  generateUniqueJobPin,
+  generateUniqueReferralCode,
+};

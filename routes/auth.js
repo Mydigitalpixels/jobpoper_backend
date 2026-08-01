@@ -25,6 +25,15 @@ const {
 } = require('../controllers/authController');
 const { protect, authorize } = require('../middleware/auth');
 const { uploadProfileImage, uploadVerificationDocuments, uploadWorkImages } = require('../middleware/upload');
+const { completeProfileLimiter } = require('../middleware/rateLimit');
+
+// Only rate-limit complete-profile calls that actually carry a referral code,
+// so ordinary profile completion is never throttled. Multipart bodies are
+// parsed after upload middleware, so this runs post-upload in the chain below.
+const referralRateGate = (req, res, next) => {
+  const hasCode = !!(req.body && String(req.body.referralCode || '').trim());
+  return hasCode ? completeProfileLimiter(req, res, next) : next();
+};
 
 // Public routes
 router.post('/send-verification', sendPhoneVerification);
@@ -42,7 +51,7 @@ router.post('/forgot-password/reset-pin', resetPin);
 // Protected routes
 router.use(protect); // All routes below this middleware are protected
 router.get('/me', getMe);
-router.put('/complete-profile', uploadProfileImage, completeProfile);
+router.put('/complete-profile', uploadProfileImage, referralRateGate, completeProfile);
 router.put('/current-location', updateCurrentLocation);
 router.get('/verification-status', getVerificationStatus);
 router.put('/verification-documents', uploadVerificationDocuments, submitVerificationDocuments);

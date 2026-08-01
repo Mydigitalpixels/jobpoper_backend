@@ -6,6 +6,9 @@ const {
   getDashboardSummary,
   getAdminUsers,
   getAdminUserById,
+  getUserReferrals,
+  issueReferralExportToken,
+  exportUserReferralsPdf,
   deleteProfessionalWorkImage,
   getAdminJobs,
   getAdminJobById,
@@ -18,15 +21,23 @@ const {
   updateReportStatus,
 } = require("../controllers/adminController");
 const { protect, authorize } = require("../middleware/auth");
+const { exportLimiter } = require("../middleware/rateLimit");
 
 router.get("/setup-status", getAdminSetupStatus);
 router.post("/bootstrap", bootstrapAdmin);
+
+// PDF export is opened in the system browser, which cannot send the auth
+// header — so it authorises via a short-lived signed token (?t=) verified
+// inside the handler. Mounted BEFORE the admin session guard for that reason.
+router.get("/users/:userId/referrals/export", exportLimiter, exportUserReferralsPdf);
 
 router.use(protect, authorize("admin"));
 
 router.get("/dashboard", getDashboardSummary);
 router.get("/users", getAdminUsers);
 router.get("/users/:userId", getAdminUserById);
+router.get("/users/:userId/referrals", getUserReferrals);
+router.get("/users/:userId/referrals/export-token", issueReferralExportToken);
 router.delete("/users/:userId/work-images", deleteProfessionalWorkImage);
 router.get("/jobs", getAdminJobs);
 router.get("/jobs/:jobId", getAdminJobById);

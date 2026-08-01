@@ -136,6 +136,28 @@ const userSchema = new mongoose.Schema({
     // NOTE: `default: null` is intentionally omitted so the field stays
     // genuinely absent until a Worker ID is assigned.
   },
+  referralCode: {
+    type: String,
+    uppercase: true,
+    trim: true,
+    minlength: 5,
+    maxlength: 5
+    // Uniqueness enforced by a PARTIAL unique index below — never a
+    // field-level `unique`/`sparse`, and never `default: null`. See the
+    // workerId comment above and scripts/fixWorkerIdIndex.js for the
+    // production incident this avoids. Assigned to EVERY user at registration.
+  },
+  referredBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+    // The user whose referral code this account was created with.
+    // Write-once: set during complete-profile, never changed afterwards.
+  },
+  referredAt: {
+    type: Date,
+    default: null
+  },
   rating: {
     average: { type: Number, default: 0, min: 0, max: 5 },
     count: { type: Number, default: 0, min: 0 }
@@ -222,5 +244,17 @@ userSchema.index(
   { workerId: 1 },
   { unique: true, partialFilterExpression: { workerId: { $type: 'string' } } }
 );
+
+// Referral code: mirrors the workerId index exactly. Only documents whose
+// referralCode is an actual string participate, so any number of users
+// without one can coexist (and legacy explicit-null rows never collide).
+userSchema.index(
+  { referralCode: 1 },
+  { unique: true, partialFilterExpression: { referralCode: { $type: 'string' } } }
+);
+
+// Powers the paginated "Referred Users" list and its count in one index.
+// referredBy is the equality prefix; createdAt gives the sort for free.
+userSchema.index({ referredBy: 1, createdAt: -1 });
 
 module.exports = mongoose.model('User', userSchema);
