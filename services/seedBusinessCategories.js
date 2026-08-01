@@ -17,6 +17,7 @@ const DEFAULT_CATEGORIES = [
   { slug: 'footwear-shops', name: 'Footwear Shops' },
   { slug: 'bags-accessories', name: 'Bags & Accessories' },
   { slug: 'jewelry-shops', name: 'Jewelry Shops' },
+  { slug: 'imitation-jewelry', name: 'Imitation Jewelry' },
   { slug: 'salons-barber-shops', name: 'Salons & Barber Shops' },
   { slug: 'spa-wellness-centers', name: 'Spa & Wellness Centers' },
   { slug: 'beauty-cosmetics-stores', name: 'Beauty & Cosmetics Stores' },

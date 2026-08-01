@@ -216,32 +216,50 @@ const uploadVerificationDocuments = [
     { name: 'photoId', maxCount: 1 }
   ]),
   async (req, res, next) => {
+    const startedAt = Date.now();
     try {
       const files = req.files || {};
-      const processed = {
-        selfie: null,
-        photoId: null
-      };
+      const selfieFile = files.selfie?.[0];
+      const photoIdFile = files.photoId?.[0];
 
-      if (files.selfie?.[0]) {
-        processed.selfie = await saveVerificationFile(
-          files.selfie[0],
-          'selfie',
-          path.join(__dirname, '..', 'uploads', 'verification', 'selfies'),
-        );
-      }
+      const [selfie, photoId] = await Promise.all([
+        selfieFile
+          ? saveVerificationFile(
+              selfieFile,
+              'selfie',
+              path.join(__dirname, '..', 'uploads', 'verification', 'selfies'),
+            )
+          : Promise.resolve(null),
+        photoIdFile
+          ? saveVerificationFile(
+              photoIdFile,
+              'photo-id',
+              path.join(__dirname, '..', 'uploads', 'verification', 'id-documents'),
+            )
+          : Promise.resolve(null),
+      ]);
 
-      if (files.photoId?.[0]) {
-        processed.photoId = await saveVerificationFile(
-          files.photoId[0],
-          'photo-id',
-          path.join(__dirname, '..', 'uploads', 'verification', 'id-documents'),
-        );
-      }
+      req.processedVerificationFiles = { selfie, photoId };
 
-      req.processedVerificationFiles = processed;
+      console.log(
+        '[verification-upload]',
+        JSON.stringify({
+          durationMs: Date.now() - startedAt,
+          selfieBytes: selfieFile?.size || 0,
+          photoIdBytes: photoIdFile?.size || 0,
+          selfieMime: selfieFile?.mimetype || null,
+          photoIdMime: photoIdFile?.mimetype || null,
+        }),
+      );
+
       return next();
     } catch (err) {
+      console.warn(
+        '[verification-upload] failed after',
+        Date.now() - startedAt,
+        'ms:',
+        err?.message || err,
+      );
       return next(err);
     }
   }

@@ -19,19 +19,22 @@ const LINE = "#CBD5E1";
 const BATCH = 500;
 
 const STATUS_LABEL = {
-  active: "Active",
-  pending_profile: "Profile incomplete",
-  inactive: "Inactive",
+  verified: "Verified",
+  not_verified: "Not Verified",
+  // Legacy values kept so older in-memory rows still render if present.
+  active: "Verified",
+  pending_profile: "Not Verified",
+  inactive: "Not Verified",
 };
 
 // Column layout (x offsets and widths) within the content area.
 const COLS = [
   { key: "idx", label: "#", w: 26 },
-  { key: "name", label: "Name", w: 120 },
-  { key: "email", label: "Email", w: 150 },
-  { key: "phone", label: "Phone", w: 90 },
+  { key: "name", label: "Name", w: 110 },
+  { key: "email", label: "Email", w: 140 },
+  { key: "phone", label: "Phone", w: 85 },
   { key: "date", label: "Registered", w: 70 },
-  { key: "status", label: "Status", w: 39 },
+  { key: "status", label: "Verification", w: 64 },
 ];
 
 const fmtDate = (d) => {
@@ -128,7 +131,7 @@ const streamReferralPdf = async (res, { owner, total }) => {
       y = drawTableHeader(80);
     }
     rowIdx += 1;
-    const status = STATUS_LABEL[deriveAccountStatus(u)] || "Active";
+    const status = STATUS_LABEL[deriveAccountStatus(u)] || "Not Verified";
     const values = {
       idx: String(rowIdx),
       name: u.profile?.fullName || "—",
@@ -155,7 +158,7 @@ const streamReferralPdf = async (res, { owner, total }) => {
   let rows;
   do {
     rows = await User.find({ referredBy: owner._id })
-      .select("profile.fullName profile.email profile.isProfileComplete phoneNumber isActive createdAt")
+      .select("profile.fullName profile.email profile.isProfileComplete phoneNumber isActive isVerified createdAt")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(BATCH)

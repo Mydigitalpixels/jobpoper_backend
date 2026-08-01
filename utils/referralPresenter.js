@@ -5,15 +5,14 @@
  *   - buildReferredUser()  -> peer-facing, contact details MASKED
  *   - buildAdminReferredUser() -> admin-facing, contact details in full
  *
- * Both derive a non-sensitive `accountStatus` label and NEVER expose the raw
- * isActive flag, the PIN hash or any verification document path.
+ * Both derive a non-sensitive `accountStatus` label from identity verification
+ * (`verified` | `not_verified`) and NEVER expose the raw isActive flag, the
+ * PIN hash or any verification document path.
  */
 
-// active | pending_profile | inactive — derived, never the raw flag.
+// verified | not_verified — based on identity verification, not account block.
 const deriveAccountStatus = (user) => {
-  if (user.isActive === false) return 'inactive';
-  if (user.profile && user.profile.isProfileComplete === false) return 'pending_profile';
-  return 'active';
+  return user.isVerified === true ? 'verified' : 'not_verified';
 };
 
 // a•••••a@example.com — keep first & last local char and the full domain.
@@ -49,6 +48,7 @@ const buildReferredUser = (user) => ({
   phoneNumber: maskPhone(user.phoneNumber),
   registeredAt: user.createdAt || null,
   accountStatus: deriveAccountStatus(user),
+  isVerified: user.isVerified === true,
 });
 
 // Admin-facing referred user (unmasked).
@@ -60,13 +60,14 @@ const buildAdminReferredUser = (user) => ({
   phoneNumber: user.phoneNumber || '',
   registeredAt: user.createdAt || null,
   accountStatus: deriveAccountStatus(user),
+  isVerified: user.isVerified === true,
   isProfessional: !!user.isProfessional,
 });
 
 // The exact whitelist every referred-user query must select. Never the whole
 // document — that would leak PIN hashes and verification document paths.
 const REFERRED_USER_SELECT =
-  '_id profile.fullName profile.email profile.profileImage profile.isProfileComplete phoneNumber isActive isProfessional createdAt';
+  '_id profile.fullName profile.email profile.profileImage profile.isProfileComplete phoneNumber isActive isVerified isProfessional createdAt';
 
 module.exports = {
   deriveAccountStatus,
