@@ -7,6 +7,11 @@ const Notification = require('../models/Notification');
 const Device = require('../models/Device');
 const PhoneVerification = require('../models/PhoneVerification');
 const TwilioService = require('../services/twilioService');
+const {
+  assertCanSendOtp,
+  logOtpSend,
+  resultForDenial,
+} = require('../services/otpGuard');
 const { sendPushToUserForNotification } = require('../services/pushNotificationService');
 const { generateToken } = require('../middleware/auth');
 
@@ -61,6 +66,40 @@ const populateServiceCategories = async (user) => {
   return user;
 };
 
+// How long the client should disable "Resend code" for. Kept in sync with the
+// otpSendLimiter window so the UI never invites a request that will 429.
+const OTP_RESEND_SECONDS = 60;
+
+const respondOtpDenied = (res, check) =>
+  res.status(check.status).json({
+    status: 'error',
+    code: check.code,
+    message: check.message,
+    ...(check.retryAfterSeconds
+      ? { data: { retryAfterSeconds: check.retryAfterSeconds } }
+      : {}),
+  });
+
+// "+923001234567" -> "+92 ••• ••• 4567". Purely for display in the verify sheet
+// so the user can confirm which number the code went to without us echoing the
+// full number back over the wire.
+const maskPhoneNumber = (phoneNumber) => {
+  const raw = String(phoneNumber || '').trim();
+  if (!raw) return '';
+
+  const hasPlus = raw.startsWith('+');
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length <= 4) return raw;
+
+  const countryLen = hasPlus ? Math.min(2, digits.length - 4) : 0;
+  const country = digits.slice(0, countryLen);
+  const last4 = digits.slice(-4);
+  const hiddenCount = digits.length - countryLen - 4;
+  const hidden = '•'.repeat(Math.max(hiddenCount, 0));
+
+  return `${hasPlus ? '+' : ''}${country}${country ? ' ' : ''}${hidden} ${last4}`.trim();
+};
+
 const parseCoordinate = (value) => {
   if (value === undefined || value === null || value === "") return null;
   const parsed = Number(value);
@@ -98,9 +137,20 @@ const sendPhoneVerification = asyncHandler(async (req, res) => {
     });
   }
 
+  const check = await assertCanSendOtp({
+    phoneNumber,
+    req,
+    endpoint: 'send-verification',
+  });
+  if (!check.ok) {
+    await logOtpSend({ meta: check.meta, result: resultForDenial(check.code), errorCode: check.code, errorMessage: check.message });
+    return respondOtpDenied(res, check);
+  }
+
   // Check if phone number already exists
-  const existingUser = await User.findOne({ phoneNumber });
+  const existingUser = await User.findOne({ phoneNumber: check.phoneNumber });
   if (existingUser) {
+    await logOtpSend({ meta: check.meta, result: 'already_registered' });
     return res.status(400).json({
       status: 'error',
       message: 'Phone number already registered'
@@ -108,17 +158,23 @@ const sendPhoneVerification = asyncHandler(async (req, res) => {
   }
 
   try {
-    const result = await TwilioService.sendVerificationCode(phoneNumber);
+    const result = await TwilioService.sendVerificationCode(check.phoneNumber);
+    await logOtpSend({ meta: check.meta, result: 'sent', twilioSid: result.twilioSid });
 
     res.status(200).json({
       status: 'success',
       message: 'Verification code sent successfully',
       data: {
-        phoneNumber,
+        phoneNumber: check.phoneNumber,
         twilioSid: result.twilioSid
       }
     });
   } catch (error) {
+    await logOtpSend({
+      meta: check.meta,
+      result: 'twilio_failed',
+      errorMessage: error.message,
+    });
     res.status(500).json({
       status: 'error',
       message: error.message
@@ -139,9 +195,19 @@ const resendPhoneVerification = asyncHandler(async (req, res) => {
     });
   }
 
-  // Optional: keep same behavior as sendPhoneVerification and prevent resend for already registered numbers
-  const existingUser = await User.findOne({ phoneNumber });
+  const check = await assertCanSendOtp({
+    phoneNumber,
+    req,
+    endpoint: 'resend-verification',
+  });
+  if (!check.ok) {
+    await logOtpSend({ meta: check.meta, result: resultForDenial(check.code), errorCode: check.code, errorMessage: check.message });
+    return respondOtpDenied(res, check);
+  }
+
+  const existingUser = await User.findOne({ phoneNumber: check.phoneNumber });
   if (existingUser) {
+    await logOtpSend({ meta: check.meta, result: 'already_registered' });
     return res.status(400).json({
       status: 'error',
       message: 'Phone number already registered'
@@ -149,17 +215,23 @@ const resendPhoneVerification = asyncHandler(async (req, res) => {
   }
 
   try {
-    const result = await TwilioService.sendVerificationCode(phoneNumber);
+    const result = await TwilioService.sendVerificationCode(check.phoneNumber);
+    await logOtpSend({ meta: check.meta, result: 'sent', twilioSid: result.twilioSid });
 
     res.status(200).json({
       status: 'success',
       message: 'Verification code resent successfully',
       data: {
-        phoneNumber,
+        phoneNumber: check.phoneNumber,
         twilioSid: result.twilioSid
       }
     });
   } catch (error) {
+    await logOtpSend({
+      meta: check.meta,
+      result: 'twilio_failed',
+      errorMessage: error.message,
+    });
     res.status(500).json({
       status: 'error',
       message: error.message
@@ -220,14 +292,15 @@ const register = asyncHandler(async (req, res) => {
     });
   }
 
-  // Check if phone number is verified
-  const isVerified = await TwilioService.isPhoneVerified(phoneNumber);
-  if (!isVerified) {
-    return res.status(400).json({
-      status: 'error',
-      message: 'Phone number must be verified before registration'
-    });
-  }
+  // Phone verification is NO LONGER required to register. It now happens
+  // in-app, on demand, the first time the user takes an action that needs a
+  // reachable number (post a task, contact a poster, show interest, add a
+  // business profile) — see POST /api/auth/phone/send-otp + /verify-otp.
+  //
+  // We still *honour* a prior OTP verification: app builds <= 1.4.5 verify by
+  // OTP before calling register, and must not be downgraded to unverified.
+  // New builds skip OTP here and land as isPhoneVerified: false.
+  const alreadyVerified = await TwilioService.isPhoneVerified(phoneNumber);
 
   // Check if user already exists
   const existingUser = await User.findOne({ phoneNumber });
@@ -257,7 +330,7 @@ const register = asyncHandler(async (req, res) => {
     const buildDoc = (code) => ({
       phoneNumber,
       pin,
-      isPhoneVerified: true,
+      isPhoneVerified: alreadyVerified,
       isVerified: false,
       ...(code ? { referralCode: code } : {}),
     });
@@ -602,6 +675,152 @@ const getMe = asyncHandler(async (req, res) => {
   });
 });
 
+// ─── In-app phone verification ────────────────────────────────────────────────
+// Signup no longer requires OTP. Instead the user verifies their number the
+// first time they take an action that needs a reachable phone. These routes are
+// authenticated and always operate on req.user.phoneNumber — the client can
+// never supply a number, so there is no way to verify a number you don't own.
+//
+// The legacy public routes (/send-verification, /resend-verification,
+// /verify-phone) are intentionally left in place for app builds <= 1.4.5.
+
+// @desc    Send an OTP to the logged-in user's own phone number
+// @route   POST /api/auth/phone/send-otp
+// @access  Private
+const sendMyPhoneOtp = asyncHandler(async (req, res) => {
+  const user = req.user;
+
+  if (user.isPhoneVerified) {
+    return res.status(200).json({
+      status: 'success',
+      message: 'Phone number is already verified',
+      data: {
+        alreadyVerified: true,
+        maskedPhone: maskPhoneNumber(user.phoneNumber),
+      },
+    });
+  }
+
+  const check = await assertCanSendOtp({
+    phoneNumber: user.phoneNumber,
+    req,
+    endpoint: 'phone-send-otp',
+    userId: user._id,
+  });
+  if (!check.ok) {
+    await logOtpSend({
+      meta: check.meta,
+      result: resultForDenial(check.code),
+      errorCode: check.code,
+      errorMessage: check.message,
+    });
+    return respondOtpDenied(res, check);
+  }
+
+  try {
+    const result = await TwilioService.sendVerificationCode(check.phoneNumber);
+    await logOtpSend({ meta: check.meta, result: 'sent', twilioSid: result.twilioSid });
+
+    return res.status(200).json({
+      status: 'success',
+      message: 'Verification code sent',
+      data: {
+        alreadyVerified: false,
+        maskedPhone: maskPhoneNumber(user.phoneNumber),
+        resendAfterSeconds: OTP_RESEND_SECONDS,
+      },
+    });
+  } catch (error) {
+    console.error('[PHONE-OTP] send failed', {
+      userId: String(user._id),
+      error: error.message,
+    });
+    await logOtpSend({
+      meta: check.meta,
+      result: 'twilio_failed',
+      errorMessage: error.message,
+    });
+
+    return res.status(502).json({
+      status: 'error',
+      code: 'OTP_SEND_FAILED',
+      message: 'We could not send the code right now. Please try again.',
+    });
+  }
+});
+
+// @desc    Verify the OTP for the logged-in user's own phone number
+// @route   POST /api/auth/phone/verify-otp
+// @access  Private
+const verifyMyPhoneOtp = asyncHandler(async (req, res) => {
+  const user = req.user;
+  const { verificationCode } = req.body || {};
+
+  const code = String(verificationCode || '').trim();
+
+  if (!/^\d{6}$/.test(code)) {
+    return res.status(400).json({
+      status: 'error',
+      code: 'INVALID_CODE',
+      message: 'Please enter the 6-digit code.',
+    });
+  }
+
+  // Idempotent: verifying twice is a success, not an error. Protects against
+  // double-taps and against a retry landing after the first call succeeded.
+  if (user.isPhoneVerified) {
+    if (user.isProfessional) await populateServiceCategories(user);
+    return res.status(200).json({
+      status: 'success',
+      message: 'Phone number is already verified',
+      data: { user: buildUserResponse(user) },
+    });
+  }
+
+  try {
+    await TwilioService.verifyCode(user.phoneNumber, code);
+  } catch (error) {
+    const message = error.message || 'Invalid verification code';
+    const expired = /expired|attempts/i.test(message);
+
+    return res.status(400).json({
+      status: 'error',
+      code: expired ? 'CODE_EXPIRED' : 'INVALID_CODE',
+      message: expired
+        ? 'That code has expired. Please request a new one.'
+        : 'That code is not correct. Please try again.',
+    });
+  }
+
+  // Safe: the User pre-save hook short-circuits on `!isModified('pin')`, and
+  // req.user is loaded with .select('-pin'), so the PIN is never re-hashed.
+  user.isPhoneVerified = true;
+  await user.save();
+
+  if (user.isProfessional) await populateServiceCategories(user);
+
+  return res.status(200).json({
+    status: 'success',
+    message: 'Phone number verified successfully',
+    data: { user: buildUserResponse(user) },
+  });
+});
+
+// @desc    Lightweight phone-verification status for the logged-in user
+// @route   GET /api/auth/phone/status
+// @access  Private
+const getMyPhoneStatus = asyncHandler(async (req, res) => {
+  const user = req.user;
+
+  return res.status(200).json({
+    status: 'success',
+    data: {
+      isPhoneVerified: !!user.isPhoneVerified,
+      maskedPhone: maskPhoneNumber(user.phoneNumber),
+    },
+  });
+});
+
 // @desc    Get current verification status
 // @route   GET /api/auth/verification-status
 // @access  Private
@@ -846,9 +1065,24 @@ const sendForgotPasswordOtp = asyncHandler(async (req, res) => {
     });
   }
 
-  // Check if phone number exists in our system
-  const user = await User.findOne({ phoneNumber });
+  const check = await assertCanSendOtp({
+    phoneNumber,
+    req,
+    endpoint: 'forgot-password',
+  });
+  if (!check.ok) {
+    await logOtpSend({
+      meta: check.meta,
+      result: resultForDenial(check.code),
+      errorCode: check.code,
+      errorMessage: check.message,
+    });
+    return respondOtpDenied(res, check);
+  }
+
+  const user = await User.findOne({ phoneNumber: check.phoneNumber });
   if (!user) {
+    await logOtpSend({ meta: check.meta, result: 'not_found' });
     return res.status(404).json({
       status: 'error',
       message: 'Phone number not found'
@@ -856,17 +1090,27 @@ const sendForgotPasswordOtp = asyncHandler(async (req, res) => {
   }
 
   try {
-    const result = await TwilioService.sendVerificationCode(phoneNumber);
+    const result = await TwilioService.sendVerificationCode(check.phoneNumber);
+    await logOtpSend({
+      meta: { ...check.meta, userId: user._id },
+      result: 'sent',
+      twilioSid: result.twilioSid,
+    });
 
     res.status(200).json({
       status: 'success',
       message: 'Verification code sent successfully',
       data: {
-        phoneNumber,
+        phoneNumber: check.phoneNumber,
         twilioSid: result.twilioSid
       }
     });
   } catch (error) {
+    await logOtpSend({
+      meta: { ...check.meta, userId: user._id },
+      result: 'twilio_failed',
+      errorMessage: error.message,
+    });
     res.status(500).json({
       status: 'error',
       message: error.message
@@ -1239,6 +1483,9 @@ module.exports = {
   register,
   login,
   checkPhoneExists,
+  sendMyPhoneOtp,
+  verifyMyPhoneOtp,
+  getMyPhoneStatus,
   completeProfile,
   updateCurrentLocation,
   getMe,

@@ -30,10 +30,24 @@ function getTwilioClient() {
 const TEST_OTP = "000000";
 const TEST_PHONE_NUMBER = "+923204099356";
 
+// SECURITY: this used to default to ENABLED, which meant the hardcoded OTP
+// "000000" verified ANY phone number in production (ALLOW_TEST_OTP was never
+// set, so the old `=== "false"` check never matched). Phone verification is now
+// the trust gate for posting tasks and revealing contact details, so the test
+// bypass is opt-in AND can never be switched on in production.
+function isProduction() {
+  return process.env.NODE_ENV === "production";
+}
+
 function isTestOtpEnabled() {
-  // Hardcoded OTP for any phone. Set ALLOW_TEST_OTP=false to disable in production.
-  if (process.env.ALLOW_TEST_OTP === "false") return false;
-  return true;
+  if (isProduction()) return false;
+  return process.env.ALLOW_TEST_OTP === "true";
+}
+
+// The designated test phone previously bypassed verification even when test OTP
+// was disabled. It is now subject to the same production guard.
+function isTestPhone(normalizedPhone) {
+  return !isProduction() && normalizedPhone === TEST_PHONE_NUMBER;
 }
 
 class TwilioService {
@@ -45,22 +59,29 @@ class TwilioService {
   // Send SMS verification code using Twilio Verify
   static async sendVerificationCode(phoneNumber) {
     try {
-      const normalizedPhone = (phoneNumber || "").trim();
+      const { validateOtpPhoneFormat, normalizeOtpPhone } = require("./otpGuard");
+      const format = validateOtpPhoneFormat(phoneNumber);
+      if (!format.ok) {
+        throw new Error(format.message);
+      }
+      const normalizedPhone = format.phoneNumber || normalizeOtpPhone(phoneNumber);
 
-      // Special test phone, or ALLOW_TEST_OTP: skip Twilio and use hardcoded code
-      if (normalizedPhone === TEST_PHONE_NUMBER || process.env.ALLOW_TEST_OTP === "true") {
+      // Special test phone, or ALLOW_TEST_OTP: skip Twilio and use hardcoded code.
+      // Both are hard-disabled when NODE_ENV === "production".
+      if (isTestPhone(normalizedPhone) || isTestOtpEnabled()) {
         const verificationCode = TEST_OTP;
         console.log(
           `🔐 Test OTP Override - Use verification code: ${verificationCode} for ${phoneNumber}`,
         );
 
+        const twilioSid = isTestPhone(normalizedPhone)
+          ? "test-phone-override"
+          : "test-otp-mode";
+
         const verification = new PhoneVerification({
           phoneNumber,
           verificationCode,
-          twilioSid:
-            normalizedPhone === TEST_PHONE_NUMBER
-              ? "test-phone-override"
-              : "test-otp-mode",
+          twilioSid,
         });
 
         await verification.save();
@@ -68,21 +89,29 @@ class TwilioService {
         return {
           success: true,
           message: "Verification code generated (test mode)",
-          twilioSid:
-            normalizedPhone === TEST_PHONE_NUMBER
-              ? "test-phone-override"
-              : "test-otp-mode",
+          twilioSid,
           verificationCode,
         };
       }
 
       const client = getTwilioClient();
-      // Check if Twilio is configured and not a trial account
-      if (
+      const twilioUnconfigured =
         !client ||
         !process.env.TWILIO_SERVICE_ID ||
-        process.env.TWILIO_SERVICE_ID === "your-verify-service-id"
-      ) {
+        process.env.TWILIO_SERVICE_ID === "your-verify-service-id";
+
+      // In production, a missing/placeholder Twilio config must be a loud
+      // failure. Silently minting a hardcoded 000000 code would hand out
+      // "verified" status to anyone — and verification now gates task posting
+      // and contact details, not just signup.
+      if (twilioUnconfigured && isProduction()) {
+        throw new Error(
+          "SMS verification is temporarily unavailable. Please try again later.",
+        );
+      }
+
+      // Check if Twilio is configured and not a trial account
+      if (twilioUnconfigured) {
         // For development/testing without Twilio - use hardcoded test code
         const verificationCode = TEST_OTP;
         console.log(
@@ -114,13 +143,13 @@ class TwilioService {
       const verification = await client.verify.v2
         .services(process.env.TWILIO_SERVICE_ID)
         .verifications.create({
-          to: phoneNumber,
+          to: normalizedPhone,
           channel: "sms",
         });
 
       // Save verification record to database (without code since Twilio handles it)
       const verificationRecord = new PhoneVerification({
-        phoneNumber,
+        phoneNumber: normalizedPhone,
         verificationCode: "twilio-verify", // Placeholder since Twilio handles the code
         twilioSid: verification.sid,
       });
@@ -149,7 +178,12 @@ class TwilioService {
       // 21408: Permission to send an SMS has not been enabled for the region indicated by the 'To' number
       const fallbackErrorCodes = new Set([21608, 60200, 21211, 21408]);
 
-      if (fallbackErrorCodes.has(error.code)) {
+      // Never fall back to a hardcoded code in production. Doing so would let
+      // anyone whose number trips one of these Twilio errors (invalid number,
+      // unsupported region) verify with 000000 — i.e. mark an unreachable
+      // number as "verified" and then post tasks and pull contact details.
+      // In production these surface as a normal failure the client can retry.
+      if (fallbackErrorCodes.has(error.code) && !isProduction()) {
         console.log(
           "🔄 Falling back to development mode for Twilio limitation or invalid number",
         );
@@ -190,11 +224,11 @@ class TwilioService {
       const normalizedPhone = (phoneNumber || "").trim();
 
       // ── Test OTP bypass ────────────────────────────────────────────────────
-      // Accept hardcoded 000000 for any phone (unless ALLOW_TEST_OTP=false).
-      // Designated test phone always works even if test OTP is disabled.
+      // Opt-in only (ALLOW_TEST_OTP=true) and never available in production.
+      // The designated test phone is subject to the same production guard.
       const allowTestOtp =
         enteredCode === TEST_OTP &&
-        (normalizedPhone === TEST_PHONE_NUMBER || isTestOtpEnabled());
+        (isTestPhone(normalizedPhone) || isTestOtpEnabled());
 
       if (allowTestOtp) {
         console.log(`🔐 Test OTP bypass: accepting ${TEST_OTP} for ${phoneNumber}`);

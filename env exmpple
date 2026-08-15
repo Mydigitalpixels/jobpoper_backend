@@ -1,10 +1,22 @@
 # Server Configuration
 PORT=3001
-NODE_ENV=development
+NODE_ENV=production
 
-# Test OTP (000000) is enabled by default for any phone.
-# Set to false to require real Twilio codes only:
-# ALLOW_TEST_OTP=false
+# Test OTP (000000) is OPT-IN and is hard-disabled when NODE_ENV=production.
+# Leave this unset (or false) on the live server.
+ALLOW_TEST_OTP=false
+
+# Phone-verification enforcement on POST /jobs, /jobs/:id/interest, /businessProfiles.
+# Leave false until the new app build is live. Then set true and restart.
+ENFORCE_PHONE_VERIFICATION=false
+
+# OTP spend guards (worldwide — no country allowlist).
+# Optional: comma-separated calling codes to refuse, e.g. 355,371
+# OTP_BLOCKED_COUNTRY_CODES=
+OTP_COOLDOWN_SECONDS=60
+OTP_PER_PHONE_WINDOW_MAX=3
+OTP_PER_PHONE_DAILY_MAX=8
+OTP_GLOBAL_HOURLY_CAP=80
 
 # MongoDB Configuration
 MONGODB_URI=your-mongodb-connection-string
@@ -16,8 +28,9 @@ JWT_SECRET=your-super-secret-jwt-key-here
 CORS_ORIGIN=http://localhost:3000
 
 # Twilio Configuration
-# OTP SMS brand text comes from Verify Service Friendly Name (or customFriendlyName in code).
-# In Twilio Console → Verify → Services → set Friendly Name to "MakeMy Task" (recommended).
+# After a suspected compromise: rotate the Auth Token in Twilio Console,
+# then paste the NEW token here on the server and restart. Never commit this file.
+# OTP SMS brand: Twilio Console → Verify → Services → Friendly Name = "MakeMy Task"
 TWILIO_ACCOUNT_SID=your-twilio-account-sid
 TWILIO_AUTH_TOKEN=your-twilio-auth-token
 TWILIO_SERVICE_ID=your-twilio-verify-service-id

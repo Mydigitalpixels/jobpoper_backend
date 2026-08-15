@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect, optionalProtect } = require('../middleware/auth');
+const { requirePhoneVerified } = require('../middleware/requirePhoneVerified');
 const { uploadJobFiles } = require('../middleware/upload');
 const {
   createJob,
@@ -45,8 +46,10 @@ router.get('/:id', optionalProtect, getJobById);
 // Protected routes (require authentication)
 router.use(protect);
 
-router.post('/', uploadJobFiles, createJob);
-router.post('/:id/interest', showInterestInJob);
+// Creation actions require a verified phone number (no-op until
+// ENFORCE_PHONE_VERIFICATION=true). Reads, edits and deletes are NOT gated.
+router.post('/', requirePhoneVerified, uploadJobFiles, createJob);
+router.post('/:id/interest', requirePhoneVerified, showInterestInJob);
 router.post('/expire-old', expireOldJobs);
 router.post('/:id/start', startJob);
 router.post('/:id/complete', completeJob);

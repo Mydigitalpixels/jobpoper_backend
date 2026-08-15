@@ -9,6 +9,10 @@ dotenv.config();
 
 const app = express();
 
+// DigitalOcean / nginx sit in front of Node. Without this, every client
+// shares the proxy IP and OTP rate limits either no-op or lock everyone out.
+app.set("trust proxy", 1);
+
 // Middleware
 app.use(cors()); // Allow all origins
 app.use(express.json());

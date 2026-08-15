@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/auth');
+const { requirePhoneVerified } = require('../middleware/requirePhoneVerified');
 const { uploadBusinessImages } = require('../middleware/upload');
 const {
   createBusinessProfile,
@@ -13,7 +14,8 @@ const {
 // Authenticated routes
 router.get('/me', protect, getMyBusinessProfiles);
 router.get('/', protect, listApprovedBusinessProfiles);
-router.post('/', protect, ...uploadBusinessImages, createBusinessProfile);
+// Creation requires a verified phone (no-op until ENFORCE_PHONE_VERIFICATION=true).
+router.post('/', protect, requirePhoneVerified, ...uploadBusinessImages, createBusinessProfile);
 router.put('/:id', protect, ...uploadBusinessImages, updateBusinessProfile);
 router.delete('/:id', protect, deleteBusinessProfile);
 
