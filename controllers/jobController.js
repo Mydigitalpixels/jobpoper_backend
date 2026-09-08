@@ -13,6 +13,24 @@ const {
 const { generateUniqueJobPin } = require("../utils/generateUniqueId");
 
 /**
+ * Extract the primary longitude from a job's location field.
+ * OnSite → location.longitude, Pickup → location.source.longitude.
+ */
+const getJobLongitude = (job) => {
+  const loc = job.location;
+  if (!loc) return null;
+  if (typeof loc.longitude === 'number') return loc.longitude;
+  if (loc.source && typeof loc.source.longitude === 'number') return loc.source.longitude;
+  return null;
+};
+
+/**
+ * Estimate UTC offset (in hours) from longitude.
+ * Each 15° of longitude ≈ 1 hour offset from UTC.
+ */
+const estimateUtcOffsetHours = (longitude) => Math.round(longitude / 15);
+
+/**
  * Resolve a category query param (ObjectId hex string OR slug) to a Mongo ObjectId.
  * Returns null if input is empty/falsy or if the category doesn't exist.
  */
@@ -1166,20 +1184,24 @@ const getHotJobs = asyncHandler(async (req, res) => {
       urgency: 'Urgent',
       scheduledDate: { $exists: true, $lte: now },
       scheduledTime: { $exists: true }
-    }).select('_id scheduledDate scheduledTime');
+    }).select('_id scheduledDate scheduledTime location jobType');
 
-    // Check each job's full datetime (date + time)
+    // Check each job's full datetime (date + time) with timezone offset
     for (const job of jobsToCheck) {
       if (!job.scheduledDate || !job.scheduledTime) continue;
 
       const timeParts = parseTime(job.scheduledTime);
       if (!timeParts) continue;
 
-      // Create full datetime by combining scheduledDate with scheduledTime
+      // Build scheduled datetime in UTC, adjusting for job location's timezone
       const scheduledDateTime = new Date(job.scheduledDate);
-      scheduledDateTime.setHours(timeParts.hours, timeParts.minutes, 0, 0);
+      scheduledDateTime.setUTCHours(timeParts.hours, timeParts.minutes, 0, 0);
 
-      // If scheduled datetime is in the past, mark for update
+      const lng = getJobLongitude(job);
+      if (lng !== null) {
+        scheduledDateTime.setUTCHours(scheduledDateTime.getUTCHours() - estimateUtcOffsetHours(lng));
+      }
+
       if (scheduledDateTime < now) {
         expiredJobIds.push(job._id);
       }
@@ -1387,20 +1409,24 @@ const searchHotJobs = asyncHandler(async (req, res) => {
       urgency: 'Urgent',
       scheduledDate: { $exists: true, $lte: now },
       scheduledTime: { $exists: true }
-    }).select('_id scheduledDate scheduledTime');
+    }).select('_id scheduledDate scheduledTime location jobType');
 
-    // Check each job's full datetime (date + time)
+    // Check each job's full datetime (date + time) with timezone offset
     for (const job of jobsToCheck) {
       if (!job.scheduledDate || !job.scheduledTime) continue;
 
       const timeParts = parseTime(job.scheduledTime);
       if (!timeParts) continue;
 
-      // Create full datetime by combining scheduledDate with scheduledTime
+      // Build scheduled datetime in UTC, adjusting for job location's timezone
       const scheduledDateTime = new Date(job.scheduledDate);
-      scheduledDateTime.setHours(timeParts.hours, timeParts.minutes, 0, 0);
+      scheduledDateTime.setUTCHours(timeParts.hours, timeParts.minutes, 0, 0);
 
-      // If scheduled datetime is in the past, mark for update
+      const lng = getJobLongitude(job);
+      if (lng !== null) {
+        scheduledDateTime.setUTCHours(scheduledDateTime.getUTCHours() - estimateUtcOffsetHours(lng));
+      }
+
       if (scheduledDateTime < now) {
         expiredJobIds.push(job._id);
       }
@@ -2458,7 +2484,7 @@ const expireOldJobs = asyncHandler(async (req, res) => {
       status: "open",
       scheduledDate: { $exists: true, $lte: now },
       scheduledTime: { $exists: true },
-    }).select("_id scheduledDate scheduledTime");
+    }).select("_id scheduledDate scheduledTime location jobType");
 
     const expiredJobIds = [];
 
@@ -2468,8 +2494,14 @@ const expireOldJobs = asyncHandler(async (req, res) => {
       const timeParts = parseTime(job.scheduledTime);
       if (!timeParts) continue;
 
+      // Build scheduled datetime in UTC, adjusting for job location's timezone
       const scheduledDateTime = new Date(job.scheduledDate);
-      scheduledDateTime.setHours(timeParts.hours, timeParts.minutes, 0, 0);
+      scheduledDateTime.setUTCHours(timeParts.hours, timeParts.minutes, 0, 0);
+
+      const lng = getJobLongitude(job);
+      if (lng !== null) {
+        scheduledDateTime.setUTCHours(scheduledDateTime.getUTCHours() - estimateUtcOffsetHours(lng));
+      }
 
       if (scheduledDateTime < now) {
         expiredJobIds.push(job._id);
