@@ -10,6 +10,7 @@ const TwilioService = require('../services/twilioService');
 const {
   assertCanSendOtp,
   logOtpSend,
+  releaseGlobalBudget,
   resultForDenial,
 } = require('../services/otpGuard');
 const { sendPushToUserForNotification } = require('../services/pushNotificationService');
@@ -170,6 +171,7 @@ const sendPhoneVerification = asyncHandler(async (req, res) => {
       }
     });
   } catch (error) {
+    await releaseGlobalBudget();
     await logOtpSend({
       meta: check.meta,
       result: 'twilio_failed',
@@ -227,6 +229,7 @@ const resendPhoneVerification = asyncHandler(async (req, res) => {
       }
     });
   } catch (error) {
+    await releaseGlobalBudget();
     await logOtpSend({
       meta: check.meta,
       result: 'twilio_failed',
@@ -701,6 +704,21 @@ const sendMyPhoneOtp = asyncHandler(async (req, res) => {
     });
   }
 
+  // ── Account age gate ──────────────────────────────────────────────────────
+  // The register→send-otp attack loop completes in under 1 second. Making new
+  // accounts wait 60s breaks the loop without affecting real users (who spend
+  // at least that long navigating to the verify screen).
+  const MIN_ACCOUNT_AGE_MS = 60_000; // 60 seconds
+  const accountAgeMs = Date.now() - new Date(user.createdAt).getTime();
+  if (accountAgeMs < MIN_ACCOUNT_AGE_MS) {
+    const waitSec = Math.ceil((MIN_ACCOUNT_AGE_MS - accountAgeMs) / 1000);
+    return res.status(429).json({
+      status: 'error',
+      code: 'ACCOUNT_TOO_NEW',
+      message: `Please wait ${waitSec} seconds before requesting a verification code.`,
+    });
+  }
+
   const check = await assertCanSendOtp({
     phoneNumber: user.phoneNumber,
     req,
@@ -735,6 +753,9 @@ const sendMyPhoneOtp = asyncHandler(async (req, res) => {
       userId: String(user._id),
       error: error.message,
     });
+    // Release the atomic budget reservation so a failed send doesn't eat
+    // into the hourly/daily cap.
+    await releaseGlobalBudget();
     await logOtpSend({
       meta: check.meta,
       result: 'twilio_failed',
@@ -1106,6 +1127,7 @@ const sendForgotPasswordOtp = asyncHandler(async (req, res) => {
       }
     });
   } catch (error) {
+    await releaseGlobalBudget();
     await logOtpSend({
       meta: { ...check.meta, userId: user._id },
       result: 'twilio_failed',

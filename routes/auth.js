@@ -30,6 +30,7 @@ const { protect, authorize } = require('../middleware/auth');
 const { uploadProfileImage, uploadVerificationDocuments, uploadWorkImages } = require('../middleware/upload');
 const {
   completeProfileLimiter,
+  registerLimiter,
   otpSendLimiter,
   otpVerifyLimiter,
   publicOtpLimiter,
@@ -51,9 +52,9 @@ const referralRateGate = (req, res, next) => {
 router.post('/send-verification', publicOtpLimiter, sendPhoneVerification);
 router.post('/resend-verification', publicOtpLimiter, resendPhoneVerification);
 router.post('/verify-phone', publicOtpLimiter, verifyPhoneNumber);
-router.post('/register', register);
+router.post('/register', registerLimiter, register);
 router.post('/login', login);
-router.post('/check-phone', checkPhoneExists);
+router.post('/check-phone', registerLimiter, checkPhoneExists);
 
 // Forgot Password Flow — send-otp is public and costs Twilio money, so it
 // shares the same IP limiter as the legacy signup OTP routes.

@@ -10,13 +10,27 @@ ALLOW_TEST_OTP=false
 # Leave false until the new app build is live. Then set true and restart.
 ENFORCE_PHONE_VERIFICATION=false
 
-# OTP spend guards (worldwide — no country allowlist).
-# Optional: comma-separated calling codes to refuse, e.g. 355,371
-# OTP_BLOCKED_COUNTRY_CODES=
-OTP_COOLDOWN_SECONDS=60
+# ── OTP spend guards ────────────────────────────────────────────────────────
+#
+# COUNTRY ALLOWLIST (recommended) — if set, ONLY these country codes can
+# receive OTP SMS. Add new countries as your user base grows.
+# When this is set, OTP_BLOCKED_COUNTRY_CODES is ignored.
+OTP_ALLOWED_COUNTRY_CODES=92,91,55
+
+# PRIMARY countries — no per-country throttle. Others are capped at
+# OTP_SECONDARY_COUNTRY_HOURLY per hour.
+OTP_PRIMARY_COUNTRY_CODES=92,91,55
+OTP_SECONDARY_COUNTRY_HOURLY=5
+
+# BLOCKLIST (fallback — only used when ALLOWED list is empty)
+OTP_BLOCKED_COUNTRY_CODES=255
+
+# Rate / budget controls
+OTP_COOLDOWN_SECONDS=90
 OTP_PER_PHONE_WINDOW_MAX=3
-OTP_PER_PHONE_DAILY_MAX=8
-OTP_GLOBAL_HOURLY_CAP=80
+OTP_PER_PHONE_DAILY_MAX=5
+OTP_GLOBAL_HOURLY_CAP=15
+OTP_GLOBAL_DAILY_CAP=100
 
 # MongoDB Configuration
 MONGODB_URI=your-mongodb-connection-string
@@ -31,6 +45,9 @@ CORS_ORIGIN=http://localhost:3000
 # After a suspected compromise: rotate the Auth Token in Twilio Console,
 # then paste the NEW token here on the server and restart. Never commit this file.
 # OTP SMS brand: Twilio Console → Verify → Services → Friendly Name = "MakeMy Task"
+#
+# IMPORTANT: Also lock Geo Permissions in Twilio Console → Verify → Service:
+# disable all, then enable only the countries in OTP_ALLOWED_COUNTRY_CODES.
 TWILIO_ACCOUNT_SID=your-twilio-account-sid
 TWILIO_AUTH_TOKEN=your-twilio-auth-token
 TWILIO_SERVICE_ID=your-twilio-verify-service-id

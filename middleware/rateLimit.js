@@ -55,18 +55,48 @@ const makeByIp = (windowMs, max) => {
   });
 };
 
+// Key by destination phone number + IP — so a new user ID does NOT reset the
+// counter. This is the fix for the SMS-pumping amplifier: the attacker can
+// mint unlimited user IDs, but they cannot rotate their IP *and* phone at the
+// same time without real cost.
+const keyByPhoneAndIp = (req) => {
+  const phone = (req.user && req.user.phoneNumber) || req.body?.phoneNumber || '';
+  return `${phone}|${req.ip}`;
+};
+
+const makeByPhoneAndIp = (windowMs, max) => {
+  if (!rateLimit) return noop;
+  return rateLimit({
+    windowMs,
+    max,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: keyByPhoneAndIp,
+    handler: (req, res) =>
+      res.status(429).json({
+        status: 'error',
+        code: 'RATE_LIMITED',
+        message: 'Too many attempts. Please try again in a few minutes.',
+      }),
+  });
+};
+
 module.exports = {
   validateLimiter: make(60 * 1000, 10),        // 10 / minute
   completeProfileLimiter: make(60 * 60 * 1000, 5), // 5 / hour
   exportLimiter: make(60 * 60 * 1000, 10),      // 10 / hour
 
-  // In-app phone verification. Each send costs money, so it is the tighter of
-  // the two. 3 per 15 min pairs with the client's 60s resend countdown: the
-  // user can legitimately resend twice, then must wait.
-  otpSendLimiter: make(15 * 60 * 1000, 3),      // 3 sends / 15 min / user
+  // Registration — the amplifier that made the attack possible. Without this,
+  // an attacker mints unlimited accounts and each gets a fresh rate-limit bucket.
+  registerLimiter: makeByIp(60 * 60 * 1000, 3), // 3 registrations / hour / IP
+
+  // In-app phone verification. Keyed by phone+IP so creating a new account
+  // does NOT reset the counter (the old user-ID key was the core bug).
+  otpSendLimiter: makeByPhoneAndIp(15 * 60 * 1000, 3), // 3 sends / 15 min / phone+IP
   otpVerifyLimiter: make(15 * 60 * 1000, 10),   // 10 checks / 15 min / user
 
-  // Legacy public OTP endpoints (still used by app builds <= 1.4.5) had no
-  // throttling at all. Keyed by IP since there is no authenticated user.
-  publicOtpLimiter: makeByIp(15 * 60 * 1000, 5),
+  // Legacy public OTP endpoints (still used by app builds <= 1.4.5).
+  // Tightened from 5/15min to 2/hour — these routes have near-zero legitimate
+  // traffic from the current app version.
+  publicOtpLimiter: makeByIp(60 * 60 * 1000, 2), // 2 / hour / IP
 };
