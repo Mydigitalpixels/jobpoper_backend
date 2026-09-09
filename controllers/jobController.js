@@ -609,7 +609,7 @@ const getMyInterestedJobs = asyncHandler(async (req, res) => {
     res.status(200).json({
       status: "success",
       data: {
-        jobs,
+        jobs: jobs.map(overlaySeekerNameOnPostedBy),
         pagination: {
           currentPage: page,
           totalPages,
@@ -939,30 +939,8 @@ const getAllJobs = asyncHandler(async (req, res) => {
 
     // Look up user and format output
     pipeline.push(
-      {
-        $lookup: {
-          from: "users",
-          localField: "postedBy",
-          foreignField: "_id",
-          as: "postedByUser",
-        },
-      },
-      {
-        $unwind: "$postedByUser",
-      },
+      ...getPostedByLookupPipeline(),
       ...getCategoryLookupPipeline(),
-      {
-        $addFields: {
-          postedBy: {
-            phoneNumber: "$postedByUser.phoneNumber",
-            profile: {
-              fullName: "$postedByUser.profile.fullName",
-              email: "$postedByUser.profile.email",
-              profileImage: "$postedByUser.profile.profileImage",
-            },
-          },
-        },
-      },
       {
         $project: {
           postedByUser: 0,
@@ -1007,11 +985,85 @@ const getAllJobs = asyncHandler(async (req, res) => {
   }
 });
 
+/**
+ * Join postedBy with the users collection and format it for list cards.
+ * Jobs posted on behalf of someone else must show the task seeker's name
+ * (externalContact.name), not the app user who created the post.
+ */
+const getPostedByLookupPipeline = () => [
+  {
+    $lookup: {
+      from: "users",
+      localField: "postedBy",
+      foreignField: "_id",
+      as: "postedByUser",
+    },
+  },
+  {
+    $unwind: "$postedByUser",
+  },
+  {
+    $addFields: {
+      postedBy: {
+        _id: "$postedByUser._id",
+        phoneNumber: "$postedByUser.phoneNumber",
+        profile: {
+          fullName: {
+            $cond: [
+              {
+                $and: [
+                  {
+                    $or: [
+                      { $eq: ["$postedOnBehalf", true] },
+                      { $eq: ["$postedOnBehalf", "true"] },
+                    ],
+                  },
+                  {
+                    $gt: [
+                      {
+                        $strLenCP: {
+                          $trim: {
+                            input: { $ifNull: ["$externalContact.name", ""] },
+                          },
+                        },
+                      },
+                      0,
+                    ],
+                  },
+                ],
+              },
+              { $trim: { input: "$externalContact.name" } },
+              "$postedByUser.profile.fullName",
+            ],
+          },
+          email: "$postedByUser.profile.email",
+          profileImage: "$postedByUser.profile.profileImage",
+        },
+      },
+    },
+  },
+];
+
+/** Overlay task-seeker name onto postedBy for mongoose/lean job documents. */
+const overlaySeekerNameOnPostedBy = (job) => {
+  if (!job) return job;
+  const obj = typeof job.toObject === "function" ? job.toObject() : job;
+  const postedOnBehalf =
+    obj.postedOnBehalf === true || obj.postedOnBehalf === "true";
+  const seekerName =
+    typeof obj.externalContact?.name === "string"
+      ? obj.externalContact.name.trim()
+      : "";
+  if (postedOnBehalf && seekerName && obj.postedBy && typeof obj.postedBy === "object") {
+    obj.postedBy.profile = obj.postedBy.profile || {};
+    obj.postedBy.profile.fullName = seekerName;
+  }
+  return obj;
+};
+
 // Helper: aggregation stages that join the job's `category` ObjectId with the
 // `servicecategories` collection and replace `category` with a small embedded
 // object {_id, name, slug, icon}, or null when the job has no category.
-// Lets list endpoints return category info inline so the frontend can render
-// it without a second round-trip.
 const getCategoryLookupPipeline = () => [
   {
     $lookup: {
@@ -1254,30 +1306,8 @@ const getHotJobs = asyncHandler(async (req, res) => {
     // Continue pipeline
     pipeline.push(
       // Look up user
-      {
-        $lookup: {
-          from: 'users',
-          localField: 'postedBy',
-          foreignField: '_id',
-          as: 'postedByUser'
-        }
-      },
-      {
-        $unwind: '$postedByUser'
-      },
+      ...getPostedByLookupPipeline(),
       ...getCategoryLookupPipeline(),
-      {
-        $addFields: {
-          postedBy: {
-            phoneNumber: '$postedByUser.phoneNumber',
-            profile: {
-              fullName: '$postedByUser.profile.fullName',
-              email: '$postedByUser.profile.email',
-              profileImage: '$postedByUser.profile.profileImage'
-            }
-          }
-        }
-      },
       {
         $project: {
           postedByUser: 0,
@@ -1479,30 +1509,8 @@ const searchHotJobs = asyncHandler(async (req, res) => {
 
     pipeline.push(
         // Look up user
-        {
-            $lookup: {
-                from: 'users',
-                localField: 'postedBy',
-                foreignField: '_id',
-                as: 'postedByUser'
-            }
-        },
-        {
-            $unwind: '$postedByUser'
-        },
+        ...getPostedByLookupPipeline(),
         ...getCategoryLookupPipeline(),
-      {
-        $addFields: {
-          postedBy: {
-            phoneNumber: '$postedByUser.phoneNumber',
-            profile: {
-              fullName: '$postedByUser.profile.fullName',
-              email: '$postedByUser.profile.email',
-              profileImage: '$postedByUser.profile.profileImage'
-            }
-          }
-        }
-      },
       {
         $project: {
           postedByUser: 0,
@@ -1617,30 +1625,8 @@ const getNormalJobs = asyncHandler(async (req, res) => {
 
     pipeline.push(
         // Look up user
-        {
-            $lookup: {
-                from: 'users',
-                localField: 'postedBy',
-                foreignField: '_id',
-                as: 'postedByUser'
-            }
-        },
-        {
-            $unwind: '$postedByUser'
-        },
+        ...getPostedByLookupPipeline(),
         ...getCategoryLookupPipeline(),
-      {
-        $addFields: {
-          postedBy: {
-            phoneNumber: '$postedByUser.phoneNumber',
-            profile: {
-              fullName: '$postedByUser.profile.fullName',
-              email: '$postedByUser.profile.email',
-              profileImage: '$postedByUser.profile.profileImage'
-            }
-          }
-        }
-      },
       {
         $project: {
           postedByUser: 0,
@@ -1762,30 +1748,8 @@ const searchNormalJobs = asyncHandler(async (req, res) => {
 
     pipeline.push(
         // Look up user
-        {
-            $lookup: {
-                from: 'users',
-                localField: 'postedBy',
-                foreignField: '_id',
-                as: 'postedByUser'
-            }
-        },
-        {
-            $unwind: '$postedByUser'
-        },
+        ...getPostedByLookupPipeline(),
         ...getCategoryLookupPipeline(),
-      {
-        $addFields: {
-          postedBy: {
-            phoneNumber: '$postedByUser.phoneNumber',
-            profile: {
-              fullName: '$postedByUser.profile.fullName',
-              email: '$postedByUser.profile.email',
-              profileImage: '$postedByUser.profile.profileImage'
-            }
-          }
-        }
-      },
       {
         $project: {
           postedByUser: 0,
@@ -1948,6 +1912,7 @@ const getMyJobs = asyncHandler(async (req, res) => {
   try {
     const jobs = await Job.find(filter)
       .populate("category", "_id name slug icon")
+      .populate("postedBy", "phoneNumber profile.fullName profile.email profile.profileImage")
       .populate("assignedWorker", "profile.fullName profile.profileImage workerId rating")
       .sort(sort)
       .skip(skip)
@@ -1998,7 +1963,7 @@ const getMyJobs = asyncHandler(async (req, res) => {
     res.status(200).json({
       status: "success",
       data: {
-        jobs,
+        jobs: jobs.map(overlaySeekerNameOnPostedBy),
         pagination: {
           currentPage: page,
           totalPages,
