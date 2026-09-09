@@ -2757,6 +2757,101 @@ const getWorkerReviews = asyncHandler(async (req, res) => {
   });
 });
 
+// @desc    Client force-closes a task that has been in progress too long
+// @route   POST /api/jobs/:id/force-close
+// @access  Private (job owner)
+const forceCloseJob = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { reason } = req.body;
+
+  if (!reason || !reason.trim()) {
+    return res.status(400).json({ status: "error", message: "A reason for closing the task is required" });
+  }
+  if (reason.trim().length > 500) {
+    return res.status(400).json({ status: "error", message: "Reason cannot be more than 500 characters" });
+  }
+
+  const job = await Job.findById(id);
+  if (!job) return res.status(404).json({ status: "error", message: "Task not found" });
+
+  // Only the job owner can force-close
+  if (job.postedBy.toString() !== req.user._id.toString()) {
+    return res.status(403).json({ status: "error", message: "Not authorized" });
+  }
+
+  // Only job_started tasks can be force-closed
+  if (job.status !== "job_started") {
+    return res.status(400).json({
+      status: "error",
+      message: `Cannot force-close a task with status: ${job.status}. Only in-progress tasks can be force-closed.`,
+    });
+  }
+
+  // Must be at least 24 hours since the job was started
+  const hoursSinceStart = (Date.now() - new Date(job.startedAt).getTime()) / (1000 * 60 * 60);
+  if (hoursSinceStart < 24) {
+    const remainingHours = Math.ceil(24 - hoursSinceStart);
+    return res.status(400).json({
+      status: "error",
+      message: `Task can only be force-closed after 24 hours of being in progress. Please wait ${remainingHours} more hour${remainingHours !== 1 ? "s" : ""}.`,
+    });
+  }
+
+  // Atomic update to prevent race conditions
+  const now = new Date();
+  const updated = await Job.findOneAndUpdate(
+    { _id: job._id, status: "job_started" },
+    {
+      $set: {
+        status: "force_closed",
+        forceCloseReason: reason.trim(),
+        forceClosedAt: now,
+        forceClosedBy: req.user._id,
+      },
+    },
+    { new: true },
+  );
+
+  if (!updated) {
+    return res.status(409).json({
+      status: "error",
+      message: "Could not force-close this task. Its status may have changed.",
+    });
+  }
+
+  // Notify the assigned worker (in-app + push)
+  if (updated.assignedWorker) {
+    try {
+      const notif = await Notification.create({
+        recipient: updated.assignedWorker,
+        type: "job_force_closed",
+        title: "Task Closed by Client",
+        message: `The task "${updated.title}" has been closed by the client. Reason: ${reason.trim()}`,
+        relatedEntityType: "Job",
+        relatedEntityId: updated._id,
+        navigationIdentifier: `job:${updated._id}`,
+        isRead: false,
+      });
+      sendPushToUserForNotification(notif.recipient, notif, Device).catch((e) =>
+        console.warn("[FCM] job_force_closed push failed", e && e.message),
+      );
+    } catch (error) {
+      console.error("Error creating job_force_closed notification:", error);
+    }
+  }
+
+  res.status(200).json({
+    status: "success",
+    message: "Task has been force-closed successfully",
+    data: {
+      jobId: updated._id,
+      status: updated.status,
+      forceCloseReason: updated.forceCloseReason,
+      forceClosedAt: updated.forceClosedAt,
+    },
+  });
+});
+
 // ────────────────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -2780,4 +2875,5 @@ module.exports = {
   submitReview,
   updateReview,
   getWorkerReviews,
+  forceCloseJob,
 };

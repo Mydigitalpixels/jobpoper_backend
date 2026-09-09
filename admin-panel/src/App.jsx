@@ -15,6 +15,7 @@ const menuItems = [
   { id: "jobs", label: "Tasks" },
   { id: "verifications", label: "Verification Requests" },
   { id: "reports", label: "Reports" },
+  { id: "force-closed", label: "Force Closed" },
 ];
 
 const dashboardFallback = {
@@ -24,6 +25,7 @@ const dashboardFallback = {
     activeJobs: 0,
     verifiedUsers: 0,
     pendingVerificationRequests: 0,
+    forceClosedJobs: 0,
   },
   recentUsers: [],
   recentJobs: [],
@@ -92,6 +94,9 @@ function App() {
   const [reportsLoading, setReportsLoading] = useState(false);
   const [reportStatusFilter, setReportStatusFilter] = useState("open");
   const [reportActionId, setReportActionId] = useState("");
+  const [forceClosedJobs, setForceClosedJobs] = useState([]);
+  const [selectedForceClosedId, setSelectedForceClosedId] = useState("");
+  const [selectedForceClosedJob, setSelectedForceClosedJob] = useState(null);
 
   const normalUsers = useMemo(
     () => users.filter((user) => !user.isProfessional),
@@ -111,6 +116,10 @@ function App() {
       {
         label: "Pending Requests",
         value: dashboard.stats.pendingVerificationRequests,
+      },
+      {
+        label: "Force Closed",
+        value: dashboard.stats.forceClosedJobs || 0,
       },
     ],
     [dashboard],
@@ -135,13 +144,14 @@ function App() {
     setPageError("");
 
     try {
-      const [mePayload, dashboardPayload, usersPayload, jobsPayload, verificationPayload] =
+      const [mePayload, dashboardPayload, usersPayload, jobsPayload, verificationPayload, forceClosedPayload] =
         await Promise.all([
           apiRequest("/auth/me", { token: authToken }),
           apiRequest("/admin/dashboard", { token: authToken }),
           apiRequest("/admin/users", { token: authToken }),
           apiRequest("/admin/jobs", { token: authToken }),
           apiRequest("/admin/verifications", { token: authToken }),
+          apiRequest("/admin/force-closed-jobs", { token: authToken }),
         ]);
 
       const currentUser = mePayload?.data?.user || null;
@@ -162,6 +172,8 @@ function App() {
       setUsers(nextUsers);
       setJobs(nextJobs);
       setVerificationRequests(nextRequests);
+      const nextForceClosedJobs = forceClosedPayload?.data?.jobs || [];
+      setForceClosedJobs(nextForceClosedJobs);
 
       const nextUserId =
         keepSelections && selectedUserId
@@ -338,6 +350,9 @@ function App() {
     setDashboard(dashboardFallback);
     setUsers([]);
     setJobs([]);
+    setForceClosedJobs([]);
+    setSelectedForceClosedId("");
+    setSelectedForceClosedJob(null);
     setVerificationRequests([]);
     setSelectedUserId("");
     setSelectedUser(null);
@@ -1202,6 +1217,84 @@ function App() {
             </section>
           </section>
         ) : null}
+
+        {activeView === "force-closed" ? (
+          <section className="split-layout">
+            <section className="panel">
+              <div className="panel-header">
+                <h3>Force Closed Tasks</h3>
+                <span>{forceClosedJobs.length}</span>
+              </div>
+              <SelectableList
+                items={forceClosedJobs}
+                selectedId={selectedForceClosedId}
+                onSelect={(job) => {
+                  setSelectedForceClosedId(job.id);
+                  setSelectedForceClosedJob(job);
+                }}
+                renderPrimary={(job) => job.title}
+                renderSecondary={(job) =>
+                  `${job.jobType} • ${formatDate(job.forceClosedAt)}`
+                }
+              />
+            </section>
+
+            <section className="panel detail-panel">
+              <div className="panel-header">
+                <h3>Force Close Detail</h3>
+                <span className="badge badge-warning">Force Closed</span>
+              </div>
+              {selectedForceClosedJob ? (
+                <div className="detail-stack">
+                  <DetailRow label="Title" value={selectedForceClosedJob.title} />
+                  <DetailRow label="Type" value={selectedForceClosedJob.jobType} />
+                  <DetailRow label="Urgency" value={selectedForceClosedJob.urgency} />
+                  <DetailRow label="Cost" value={selectedForceClosedJob.cost} />
+                  <DetailRow
+                    label="Posted By"
+                    value={
+                      selectedForceClosedJob.postedBy?.fullName ||
+                      selectedForceClosedJob.postedBy?.phoneNumber ||
+                      "Unknown"
+                    }
+                  />
+                  <DetailRow
+                    label="Assigned Worker"
+                    value={
+                      selectedForceClosedJob.assignedWorker
+                        ? `${selectedForceClosedJob.assignedWorker.fullName || selectedForceClosedJob.assignedWorker.phoneNumber || "Unknown"} (${selectedForceClosedJob.assignedWorker.workerId || "N/A"})`
+                        : "None"
+                    }
+                  />
+                  <DetailRow
+                    label="Started At"
+                    value={formatDate(selectedForceClosedJob.startedAt)}
+                  />
+                  <DetailRow
+                    label="Force Closed At"
+                    value={formatDate(selectedForceClosedJob.forceClosedAt)}
+                  />
+                  <DetailRow
+                    label="Closed By"
+                    value={
+                      selectedForceClosedJob.forceClosedBy?.fullName ||
+                      selectedForceClosedJob.forceClosedBy?.phoneNumber ||
+                      "Unknown"
+                    }
+                  />
+                  <DetailRow
+                    label="Reason"
+                    value={selectedForceClosedJob.forceCloseReason || "No reason provided"}
+                    multiline
+                  />
+                </div>
+              ) : (
+                <EmptyPanel message="Choose a force-closed task to see details." />
+              )}
+            </section>
+          </section>
+        ) : null}
+
       </main>
     </div>
   );

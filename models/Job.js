@@ -130,7 +130,7 @@ const jobSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['open', 'job_started', 'completed', 'cancelled'],
+    enum: ['open', 'job_started', 'completed', 'cancelled', 'force_closed'],
     default: 'open'
   },
   assignedWorker: {
@@ -177,6 +177,21 @@ const jobSchema = new mongoose.Schema({
   },
   completedAt: {
     type: Date,
+    default: null
+  },
+  forceCloseReason: {
+    type: String,
+    trim: true,
+    maxlength: [500, 'Force close reason cannot be more than 500 characters'],
+    default: null
+  },
+  forceClosedAt: {
+    type: Date,
+    default: null
+  },
+  forceClosedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
     default: null
   }
 }, {

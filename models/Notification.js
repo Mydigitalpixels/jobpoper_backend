@@ -20,8 +20,9 @@ const notificationSchema = new mongoose.Schema({
         'verification_review',
         'business_profile_review',
         'order_received',
+        'job_force_closed',
       ],
-      message: 'Notification type must be one of: job_created, job_interest, job_started, job_completed, job_review, verification_review, business_profile_review, order_received'
+      message: 'Notification type must be one of: job_created, job_interest, job_started, job_completed, job_review, verification_review, business_profile_review, order_received, job_force_closed'
     },
     index: true
   },

@@ -20,7 +20,8 @@ function getAndroidChannelId(type) {
     t === "job_review" ||
     t === "verification_review" ||
     t === "business_profile_review" ||
-    t === "order_received"
+    t === "order_received" ||
+    t === "job_force_closed"
   )
     return "jobpoper_jobs";
   return "jobpoper_default";

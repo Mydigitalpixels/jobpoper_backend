@@ -24,6 +24,7 @@ const {
   submitReview,
   updateReview,
   getWorkerReviews,
+  forceCloseJob,
 } = require('../controllers/jobController');
 
 // Public routes
@@ -51,6 +52,7 @@ router.use(protect);
 router.post('/', requirePhoneVerified, uploadJobFiles, createJob);
 router.post('/:id/interest', requirePhoneVerified, showInterestInJob);
 router.post('/expire-old', expireOldJobs);
+router.post('/:id/force-close', requirePhoneVerified, forceCloseJob);
 router.post('/:id/start', startJob);
 router.post('/:id/complete', completeJob);
 router.post('/:id/review', submitReview);

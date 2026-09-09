@@ -19,6 +19,7 @@ const {
   setUserBlockStatus,
   getAdminReports,
   updateReportStatus,
+  getForceClosedJobs,
 } = require("../controllers/adminController");
 const { protect, authorize } = require("../middleware/auth");
 const { exportLimiter } = require("../middleware/rateLimit");
@@ -41,6 +42,7 @@ router.get("/users/:userId/referrals/export-token", issueReferralExportToken);
 router.delete("/users/:userId/work-images", deleteProfessionalWorkImage);
 router.get("/jobs", getAdminJobs);
 router.get("/jobs/:jobId", getAdminJobById);
+router.get("/force-closed-jobs", getForceClosedJobs);
 router.get("/business-profiles/pending", getPendingBusinessProfileRequests);
 router.put("/business-profiles/:profileId/review", reviewBusinessProfileRequest);
 router.get("/verifications", getVerificationRequests);

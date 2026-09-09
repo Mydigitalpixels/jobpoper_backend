@@ -128,6 +128,8 @@ const buildAdminJobDetail = (job) => ({
             : null,
       }))
     : [],
+  forceCloseReason: job.forceCloseReason || null,
+  forceClosedAt: job.forceClosedAt || null,
   updatedAt: job.updatedAt,
 });
 
@@ -175,6 +177,7 @@ const getDashboardSummary = asyncHandler(async (req, res) => {
     verifiedUsers,
     pendingVerificationRequests,
     pendingBusinessApprovalRequests,
+        forceClosedJobs,
     recentUsers,
     recentJobs,
   ] = await Promise.all([
@@ -184,6 +187,7 @@ const getDashboardSummary = asyncHandler(async (req, res) => {
     User.countDocuments({ isVerified: true }),
     User.countDocuments({ "verification.status": "under_review" }),
     BusinessProfile.countDocuments({ status: "pending" }),
+    Job.countDocuments({ status: "force_closed" }),
     User.find()
       .sort({ createdAt: -1 })
       .limit(5)
@@ -210,6 +214,7 @@ const getDashboardSummary = asyncHandler(async (req, res) => {
         verifiedUsers,
         pendingVerificationRequests,
         pendingBusinessApprovalRequests,
+        forceClosedJobs,
       },
       recentUsers: recentUsers.map(buildAdminUser),
       recentJobs: recentJobs.map(buildAdminJob),
@@ -703,6 +708,61 @@ const getVerificationRequests = asyncHandler(async (req, res) => {
 // Despite the path name, this endpoint accepts an optional `?status=` query
 // parameter to filter by any status — pending (default, preserves legacy
 // behaviour), approved, or rejected. The admin UI uses status=approved to
+// @desc    Get all force-closed jobs for admin panel
+// @route   GET /api/admin/force-closed-jobs
+// @access  Private/Admin
+const getForceClosedJobs = asyncHandler(async (req, res) => {
+  const page = parseInt(req.query.page, 10) || 1;
+  const limit = parseInt(req.query.limit, 10) || 20;
+  const skip = (page - 1) * limit;
+
+  const [jobs, total] = await Promise.all([
+    Job.find({ status: "force_closed" })
+      .sort({ forceClosedAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate("postedBy", "phoneNumber profile.fullName")
+      .populate("assignedWorker", "phoneNumber profile.fullName workerId")
+      .populate("forceClosedBy", "phoneNumber profile.fullName")
+      .populate("category", "_id name slug icon"),
+    Job.countDocuments({ status: "force_closed" }),
+  ]);
+
+  res.status(200).json({
+    status: "success",
+    data: {
+      jobs: jobs.map((job) => ({
+        ...buildAdminJob(job),
+        forceCloseReason: job.forceCloseReason || null,
+        forceClosedAt: job.forceClosedAt || null,
+        forceClosedBy: job.forceClosedBy
+          ? {
+              id: job.forceClosedBy._id || null,
+              phoneNumber: job.forceClosedBy.phoneNumber || "",
+              fullName: job.forceClosedBy.profile?.fullName || "",
+            }
+          : null,
+        assignedWorker: job.assignedWorker
+          ? {
+              id: job.assignedWorker._id || null,
+              phoneNumber: job.assignedWorker.phoneNumber || "",
+              fullName: job.assignedWorker.profile?.fullName || "",
+              workerId: job.assignedWorker.workerId || "",
+            }
+          : null,
+        startedAt: job.startedAt || null,
+      })),
+      pagination: {
+        total,
+        page,
+        pages: Math.ceil(total / limit),
+        hasNextPage: page < Math.ceil(total / limit),
+        hasPrevPage: page > 1,
+      },
+    },
+  });
+});
+
 // power the "Approved" tab on the business-approvals screen.
 const getPendingBusinessProfileRequests = asyncHandler(async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit, 10) || 100, 200);
@@ -1000,4 +1060,5 @@ module.exports = {
   setUserBlockStatus,
   getAdminReports,
   updateReportStatus,
+  getForceClosedJobs,
 };
