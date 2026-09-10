@@ -126,6 +126,34 @@ const check = (name, cond, extra = '') => {
   check('a refused country leaves the global bucket untouched',
     (buckets.get('global:h:2026-09-09T20') || 0) === 0);
 
+  console.log('\n7. Per-IP hourly cap (phone rotation from one machine)');
+  buckets.clear();
+  process.env.OTP_ALLOWED_COUNTRY_CODES = '92,91,55';
+  process.env.OTP_PER_IP_HOURLY_CAP = '3';
+  const oneIp = await Promise.all(
+    Array.from({ length: 20 }, (_, i) =>
+      guard.assertCanSendOtp({ phoneNumber: `+9230077${String(i).padStart(5, '0')}`, req: req('5.5.5.5'), endpoint: 'phone-send-otp' })
+    )
+  );
+  const oneIpAllowed = oneIp.filter((x) => x.ok).length;
+  check(`20 numbers rotated from ONE ip -> only 3 allowed (got ${oneIpAllowed})`, oneIpAllowed === 3);
+  check('the refusal is IP_CAPPED', oneIp.some((x) => x.code === 'IP_CAPPED'));
+
+  console.log('\n8. A proxy pool defeats the per-IP cap but not the global one');
+  buckets.clear();
+  process.env.OTP_GLOBAL_HOURLY_CAP = '15';
+  const pool = await Promise.all(
+    Array.from({ length: 60 }, (_, i) =>
+      guard.assertCanSendOtp({
+        phoneNumber: `+9230088${String(i).padStart(5, '0')}`,
+        req: req(`10.0.${Math.floor(i / 256)}.${i % 256}`),   // a fresh IP every time
+        endpoint: 'phone-send-otp',
+      })
+    )
+  );
+  const poolAllowed = pool.filter((x) => x.ok).length;
+  check(`60 requests from 60 different IPs -> still capped at 15 (got ${poolAllowed})`, poolAllowed === 15);
+
   console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);
 })();

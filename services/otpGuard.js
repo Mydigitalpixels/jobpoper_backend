@@ -136,6 +136,22 @@ const denial = (status, code, message, extra = {}) => ({
   ...extra,
 });
 
+/**
+ * Single place where a cap breach is announced.
+ *
+ * Right now it is a loud console.error that PM2 / CloudWatch log alerts can
+ * match on the "*** ALERT ***" marker. This is deliberately ONE function so
+ * that wiring real-time alerting is a one-line change rather than a hunt
+ * through the guard.
+ *
+ * TODO: push to the admin via Firebase (services/pushNotificationService.js is
+ * already wired), or an email / Slack webhook. An attack that runs for six
+ * hours before anyone notices is the expensive kind.
+ */
+const alertAdmin = (tag, data) => {
+  console.error(`[OTP-GUARD] *** ALERT *** ${tag}`, JSON.stringify(data));
+};
+
 // ── format / geography ────────────────────────────────────────────────────────
 
 const validateOtpPhoneFormat = (phoneNumber) => {
@@ -271,9 +287,17 @@ const assertCanSendOtp = async ({ phoneNumber, req, endpoint, userId = null }) =
     return res;
   };
 
-  const abort = async (status, code, message, logLabel, detail) => {
+  const abort = async (status, code, message, alertTag, detail) => {
     await OtpBudget.releaseAll(reservations);
-    if (logLabel) console.error(`[OTP-GUARD] ${logLabel}`, { ...detail, endpoint, ip: meta.ip, phone: meta.maskedPhone });
+    if (alertTag) {
+      alertAdmin(alertTag, {
+        ...detail,
+        endpoint,
+        ip: meta.ip,
+        phone: meta.maskedPhone,
+        countryPrefix: prefix,
+      });
+    }
     return deny(status, code, message);
   };
 
@@ -283,7 +307,7 @@ const assertCanSendOtp = async ({ phoneNumber, req, endpoint, userId = null }) =
       429,
       'IP_CAPPED',
       'Too many verification requests from this network. Please try again later.',
-      'IP HOURLY CAP HIT',
+      'IP_HOURLY_CAP_HIT',
       { count: ipClaim.count, cap: perIpHourlyCap() }
     );
   }
@@ -309,7 +333,7 @@ const assertCanSendOtp = async ({ phoneNumber, req, endpoint, userId = null }) =
         429,
         'COUNTRY_CAPPED',
         'Verification is temporarily unavailable. Please try again later.',
-        'SECONDARY COUNTRY CAP HIT',
+        'SECONDARY_COUNTRY_CAP_HIT',
         { countryPrefix: prefix, count: countryClaim.count, cap }
       );
     }
@@ -321,7 +345,7 @@ const assertCanSendOtp = async ({ phoneNumber, req, endpoint, userId = null }) =
       429,
       'OTP_GLOBAL_CAP',
       'Verification is temporarily unavailable. Please try again later.',
-      'GLOBAL HOURLY CAP HIT',
+      'GLOBAL_HOURLY_CAP_HIT',
       { count: globalHour.count, cap: globalHourlyCap() }
     );
   }
@@ -332,7 +356,7 @@ const assertCanSendOtp = async ({ phoneNumber, req, endpoint, userId = null }) =
       429,
       'OTP_GLOBAL_CAP',
       'Verification is temporarily unavailable. Please try again later.',
-      'GLOBAL DAILY CAP HIT',
+      'GLOBAL_DAILY_CAP_HIT',
       { count: globalDay.count, cap: globalDailyCap() }
     );
   }
@@ -406,4 +430,5 @@ module.exports = {
   maskPhone,
   clientIp,
   countryPrefixOf,
+  alertAdmin,
 };

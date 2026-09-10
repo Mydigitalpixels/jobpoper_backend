@@ -81,6 +81,33 @@ const respondOtpDenied = (res, check) =>
       : {}),
   });
 
+/**
+ * Log the outcome of a TwilioService.sendVerificationCode() call.
+ *
+ * twilioService reuses a still-valid pending Verify instead of creating a
+ * second SMS charge, and signals that with result.reused. A reused send costs
+ * NOTHING, so it must not be logged as 'sent' and must not keep the budget
+ * reservation — otherwise a legitimate user retrying inside the 10-minute
+ * window burns the hourly, daily, per-IP and per-country caps for a message
+ * that was never billed.
+ */
+const recordOtpSend = async (check, result, extraMeta = {}) => {
+  if (result && result.reused) {
+    await releaseOtpBudget(check);
+    await logOtpSend({
+      meta: { ...check.meta, ...extraMeta },
+      result: 'reused_pending',
+      twilioSid: result.twilioSid,
+    });
+    return;
+  }
+  await logOtpSend({
+    meta: { ...check.meta, ...extraMeta },
+    result: 'sent',
+    twilioSid: result.twilioSid,
+  });
+};
+
 // "+923001234567" -> "+92 ••• ••• 4567". Purely for display in the verify sheet
 // so the user can confirm which number the code went to without us echoing the
 // full number back over the wire.
@@ -162,7 +189,7 @@ const sendPhoneVerification = asyncHandler(async (req, res) => {
 
   try {
     const result = await TwilioService.sendVerificationCode(check.phoneNumber);
-    await logOtpSend({ meta: check.meta, result: 'sent', twilioSid: result.twilioSid });
+    await recordOtpSend(check, result);
 
     res.status(200).json({
       status: 'success',
@@ -222,7 +249,7 @@ const resendPhoneVerification = asyncHandler(async (req, res) => {
 
   try {
     const result = await TwilioService.sendVerificationCode(check.phoneNumber);
-    await logOtpSend({ meta: check.meta, result: 'sent', twilioSid: result.twilioSid });
+    await recordOtpSend(check, result);
 
     res.status(200).json({
       status: 'success',
@@ -749,7 +776,7 @@ const sendMyPhoneOtp = asyncHandler(async (req, res) => {
 
   try {
     const result = await TwilioService.sendVerificationCode(check.phoneNumber);
-    await logOtpSend({ meta: check.meta, result: 'sent', twilioSid: result.twilioSid });
+    await recordOtpSend(check, result);
 
     return res.status(200).json({
       status: 'success',
@@ -1124,11 +1151,7 @@ const sendForgotPasswordOtp = asyncHandler(async (req, res) => {
 
   try {
     const result = await TwilioService.sendVerificationCode(check.phoneNumber);
-    await logOtpSend({
-      meta: { ...check.meta, userId: user._id },
-      result: 'sent',
-      twilioSid: result.twilioSid,
-    });
+    await recordOtpSend(check, result, { userId: user._id });
 
     res.status(200).json({
       status: 'success',
