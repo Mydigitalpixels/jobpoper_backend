@@ -89,6 +89,15 @@ module.exports = {
   // Registration — the amplifier that made the attack possible. Without this,
   // an attacker mints unlimited accounts and each gets a fresh rate-limit bucket.
   registerLimiter: makeByIp(60 * 60 * 1000, 3), // 3 registrations / hour / IP
+  loginLimiter: makeByIp(15 * 60 * 1000, 8),    // 8 logins / 15 min / IP
+
+  // Cheap flood brake for every /auth request (login, me, OTP, profile).
+  // OTP send routes have tighter limiters on top of this.
+  authTrafficLimiter: makeByIp(10 * 60 * 1000, 120), // 120 / 10 min / IP
+
+  // Hard IP cap on SMS-triggering routes, regardless of how many phones/accounts
+  // share that IP. Complements otpSendLimiter (phone+IP) and the Mongo OTP_PER_IP cap.
+  otpIpLimiter: makeByIp(60 * 60 * 1000, 3), // 3 OTP sends / hour / IP
 
   // In-app phone verification. Keyed by phone+IP so creating a new account
   // does NOT reset the counter (the old user-ID key was the core bug).

@@ -13,13 +13,14 @@ const OtpBudget = require('../models/OtpBudget');
  *      (OTP_BLOCKED_COUNTRY_CODES) for backward compat.
  *   3. Per-number cooldown (default 60s).
  *   4. Per-number caps (3 / 15 min, 8 / 24 h).
- *   5. Per-country hourly cap for non-primary countries (default 5/hr).
- *   6. ATOMIC global hourly + daily cap via OtpBudget (no more TOCTOU race).
+ *   5. Per-IP hourly cap (default 3/hr) — stops phone-rotation from one IP.
+ *   6. Per-country hourly cap for non-primary countries (default 5/hr).
+ *   7. ATOMIC global hourly + daily cap via OtpBudget (no more TOCTOU race).
  *
  * Call assertCanSendOtp() BEFORE TwilioService.sendVerificationCode().
  * Call logOtpSend() on every outcome, including rejects.
- * Call releaseGlobalBudget() if Twilio send fails (so failed sends don't eat
- * into the budget).
+ * Call releaseGlobalBudget(check) if Twilio send fails or the send is aborted
+ * after a reservation (already registered, user not found, reused pending).
  */
 
 const E164 = /^\+[1-9]\d{6,14}$/;
@@ -54,6 +55,11 @@ const globalDailyCap = () => {
 const secondaryCountryHourlyCap = () => {
   const n = Number(process.env.OTP_SECONDARY_COUNTRY_HOURLY);
   return Number.isFinite(n) && n > 0 ? n : 5;
+};
+
+const perIpHourlyCap = () => {
+  const n = Number(process.env.OTP_PER_IP_HOURLY_CAP);
+  return Number.isFinite(n) && n > 0 ? n : 3;
 };
 
 const parseCsvEnv = (key) =>
@@ -100,12 +106,24 @@ const maskPhone = (phoneNumber) => {
 
 /**
  * Best-effort calling-code prefix (not a full libphonenumber parse).
- * 1-digit NANP, then 2, then 3.
+ * Prefer the longest configured prefix (so +420 / +234 stay 3-digit), then
+ * fall back to NANP (+1), Kazakhstan/Russia (+7), then 2-digit.
  */
 const countryPrefixOf = (e164) => {
   const digits = String(e164 || '').replace(/\D/g, '');
   if (!digits) return '';
+  const normalized = `+${digits}`;
+  const known = [
+    ...new Set([
+      ...allowedPrefixes(),
+      ...primaryCountryCodes(),
+      ...blockedPrefixes(),
+    ]),
+  ].sort((a, b) => b.length - a.length);
+  const hit = known.find((p) => normalized.startsWith(p));
+  if (hit) return hit;
   if (digits.startsWith('1') && digits.length >= 11) return '+1';
+  if (digits.startsWith('7') && digits.length >= 11) return '+7';
   if (digits.length >= 3) return `+${digits.slice(0, 2)}`;
   return `+${digits}`;
 };
@@ -186,6 +204,20 @@ const hourBucket = () => `global:${new Date().toISOString().slice(0, 13)}`;
 const dayBucket = () => `global-day:${new Date().toISOString().slice(0, 10)}`;
 const countryHourBucket = (prefix) =>
   `country:${prefix}:${new Date().toISOString().slice(0, 13)}`;
+const ipHourBucket = (ip) => {
+  const safe = String(ip || 'unknown').replace(/[^a-fA-F0-9.:]/g, '_').slice(0, 80);
+  return `ip:${safe}:${new Date().toISOString().slice(0, 13)}`;
+};
+
+const releaseReservations = async (buckets = []) => {
+  for (const id of buckets) {
+    try {
+      await OtpBudget.release(id);
+    } catch (err) {
+      console.error('[OTP-GUARD] budget release failed', id, err.message);
+    }
+  }
+};
 
 // ── Main guard ───────────────────────────────────────────────────────────────
 
@@ -212,6 +244,7 @@ const assertCanSendOtp = async ({ phoneNumber, req, endpoint, userId = null }) =
   }
 
   const now = Date.now();
+  const reservedBuckets = [];
 
   // ── Per-number cooldown ──────────────────────────────────────────────────
   const coolSec = cooldownSeconds();
@@ -273,6 +306,31 @@ const assertCanSendOtp = async ({ phoneNumber, req, endpoint, userId = null }) =
     };
   }
 
+  // ── Per-IP hourly cap (survives PM2 / multi-process, unlike express-rate-limit)
+  const ipCap = perIpHourlyCap();
+  const ipBucket = ipHourBucket(meta.ip);
+  const ipRes = await OtpBudget.reserve(ipBucket, ipCap, 7200_000);
+  if (!ipRes.allowed) {
+    alertAdmin('IP_HOURLY_CAP_HIT', {
+      ip: meta.ip,
+      count: ipRes.count,
+      cap: ipCap,
+      phone: meta.maskedPhone,
+      endpoint,
+    });
+    return {
+      ...denial(
+        429,
+        'IP_CAPPED',
+        'Too many verification requests from this network. Please try again later.'
+      ),
+      phoneNumber: normalized,
+      countryPrefix: prefix,
+      meta,
+    };
+  }
+  reservedBuckets.push(ipBucket);
+
   // ── Per-country hourly cap (non-primary countries only) ──────────────────
   const primary = primaryCountryCodes();
   if (!primary.some((p) => normalized.startsWith(p))) {
@@ -280,6 +338,7 @@ const assertCanSendOtp = async ({ phoneNumber, req, endpoint, userId = null }) =
     const countryBucket = countryHourBucket(prefix);
     const countryRes = await OtpBudget.reserve(countryBucket, countryCap, 7200_000);
     if (!countryRes.allowed) {
+      await releaseReservations(reservedBuckets);
       alertAdmin('SECONDARY_COUNTRY_CAP_HIT', {
         prefix,
         count: countryRes.count,
@@ -299,6 +358,7 @@ const assertCanSendOtp = async ({ phoneNumber, req, endpoint, userId = null }) =
         meta,
       };
     }
+    reservedBuckets.push(countryBucket);
   }
 
   // ── ATOMIC global hourly cap ─────────────────────────────────────────────
@@ -306,6 +366,7 @@ const assertCanSendOtp = async ({ phoneNumber, req, endpoint, userId = null }) =
   const hBucket = hourBucket();
   const hourlyRes = await OtpBudget.reserve(hBucket, hCap, 7200_000);
   if (!hourlyRes.allowed) {
+    await releaseReservations(reservedBuckets);
     alertAdmin('GLOBAL_HOURLY_CAP_HIT', {
       sentLastHour: hourlyRes.count,
       cap: hCap,
@@ -324,14 +385,14 @@ const assertCanSendOtp = async ({ phoneNumber, req, endpoint, userId = null }) =
       meta,
     };
   }
+  reservedBuckets.push(hBucket);
 
   // ── ATOMIC global daily cap ──────────────────────────────────────────────
   const dCap = globalDailyCap();
   const dBucket = dayBucket();
   const dailyRes = await OtpBudget.reserve(dBucket, dCap, 90_000_000); // ~25 hours
   if (!dailyRes.allowed) {
-    // Also release the hourly reservation since we're denying
-    await OtpBudget.release(hBucket);
+    await releaseReservations(reservedBuckets);
     alertAdmin('GLOBAL_DAILY_CAP_HIT', {
       sentToday: dailyRes.count,
       cap: dCap,
@@ -350,19 +411,25 @@ const assertCanSendOtp = async ({ phoneNumber, req, endpoint, userId = null }) =
       meta,
     };
   }
+  reservedBuckets.push(dBucket);
 
-  return { ok: true, phoneNumber: normalized, countryPrefix: prefix, meta };
+  return {
+    ok: true,
+    phoneNumber: normalized,
+    countryPrefix: prefix,
+    meta,
+    reservedBuckets,
+  };
 };
 
 // ── Budget release (call when Twilio send fails) ─────────────────────────────
 
-const releaseGlobalBudget = async () => {
-  try {
-    await OtpBudget.release(hourBucket());
-    await OtpBudget.release(dayBucket());
-  } catch (err) {
-    console.error('[OTP-GUARD] budget release failed', err.message);
+const releaseGlobalBudget = async (check) => {
+  if (check && Array.isArray(check.reservedBuckets) && check.reservedBuckets.length) {
+    await releaseReservations(check.reservedBuckets);
+    return;
   }
+  await releaseReservations([hourBucket(), dayBucket()]);
 };
 
 // ── Logging ──────────────────────────────────────────────────────────────────
@@ -373,6 +440,7 @@ const RESULT_BY_CODE = {
   COUNTRY_CAPPED: 'country_capped',
   OTP_COOLDOWN: 'cooldown',
   PHONE_CAPPED: 'phone_capped',
+  IP_CAPPED: 'ip_capped',
   OTP_GLOBAL_CAP: 'global_capped',
 };
 

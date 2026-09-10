@@ -32,9 +32,11 @@ if (hasAdminBuild) {
 }
 
 // Routes
-app.use("/api/auth", require("./routes/auth"));
+const { authTrafficLimiter } = require("./middleware/rateLimit");
+const authRouter = require("./routes/auth");
+app.use("/api/auth", authTrafficLimiter, authRouter);
 // Support legacy/non-API-prefixed auth routes (mobile clients may call /auth/*)
-app.use("/auth", require("./routes/auth"));
+app.use("/auth", authTrafficLimiter, authRouter);
 app.use("/api/admin", require("./routes/admin"));
 app.use("/api/users", require("./routes/users"));
 app.use("/api/jobs", require("./routes/jobs"));

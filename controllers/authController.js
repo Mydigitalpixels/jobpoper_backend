@@ -81,6 +81,28 @@ const respondOtpDenied = (res, check) =>
       : {}),
   });
 
+const recordOtpSend = async (check, result, extraMeta = {}) => {
+  if (result.reused) {
+    await releaseGlobalBudget(check);
+    await logOtpSend({
+      meta: { ...check.meta, ...extraMeta },
+      result: 'reused_pending',
+      twilioSid: result.twilioSid,
+    });
+    return;
+  }
+  await logOtpSend({
+    meta: { ...check.meta, ...extraMeta },
+    result: 'sent',
+    twilioSid: result.twilioSid,
+  });
+};
+
+const abortReservedOtp = async (check, result, extra = {}) => {
+  await releaseGlobalBudget(check);
+  await logOtpSend({ meta: check.meta, result, ...extra });
+};
+
 // "+923001234567" -> "+92 ••• ••• 4567". Purely for display in the verify sheet
 // so the user can confirm which number the code went to without us echoing the
 // full number back over the wire.
@@ -151,7 +173,7 @@ const sendPhoneVerification = asyncHandler(async (req, res) => {
   // Check if phone number already exists
   const existingUser = await User.findOne({ phoneNumber: check.phoneNumber });
   if (existingUser) {
-    await logOtpSend({ meta: check.meta, result: 'already_registered' });
+    await abortReservedOtp(check, 'already_registered');
     return res.status(400).json({
       status: 'error',
       message: 'Phone number already registered'
@@ -160,7 +182,7 @@ const sendPhoneVerification = asyncHandler(async (req, res) => {
 
   try {
     const result = await TwilioService.sendVerificationCode(check.phoneNumber);
-    await logOtpSend({ meta: check.meta, result: 'sent', twilioSid: result.twilioSid });
+    await recordOtpSend(check, result);
 
     res.status(200).json({
       status: 'success',
@@ -171,7 +193,7 @@ const sendPhoneVerification = asyncHandler(async (req, res) => {
       }
     });
   } catch (error) {
-    await releaseGlobalBudget();
+    await releaseGlobalBudget(check);
     await logOtpSend({
       meta: check.meta,
       result: 'twilio_failed',
@@ -209,7 +231,7 @@ const resendPhoneVerification = asyncHandler(async (req, res) => {
 
   const existingUser = await User.findOne({ phoneNumber: check.phoneNumber });
   if (existingUser) {
-    await logOtpSend({ meta: check.meta, result: 'already_registered' });
+    await abortReservedOtp(check, 'already_registered');
     return res.status(400).json({
       status: 'error',
       message: 'Phone number already registered'
@@ -218,7 +240,7 @@ const resendPhoneVerification = asyncHandler(async (req, res) => {
 
   try {
     const result = await TwilioService.sendVerificationCode(check.phoneNumber);
-    await logOtpSend({ meta: check.meta, result: 'sent', twilioSid: result.twilioSid });
+    await recordOtpSend(check, result);
 
     res.status(200).json({
       status: 'success',
@@ -229,7 +251,7 @@ const resendPhoneVerification = asyncHandler(async (req, res) => {
       }
     });
   } catch (error) {
-    await releaseGlobalBudget();
+    await releaseGlobalBudget(check);
     await logOtpSend({
       meta: check.meta,
       result: 'twilio_failed',
@@ -737,7 +759,7 @@ const sendMyPhoneOtp = asyncHandler(async (req, res) => {
 
   try {
     const result = await TwilioService.sendVerificationCode(check.phoneNumber);
-    await logOtpSend({ meta: check.meta, result: 'sent', twilioSid: result.twilioSid });
+    await recordOtpSend(check, result);
 
     return res.status(200).json({
       status: 'success',
@@ -755,7 +777,7 @@ const sendMyPhoneOtp = asyncHandler(async (req, res) => {
     });
     // Release the atomic budget reservation so a failed send doesn't eat
     // into the hourly/daily cap.
-    await releaseGlobalBudget();
+    await releaseGlobalBudget(check);
     await logOtpSend({
       meta: check.meta,
       result: 'twilio_failed',
@@ -1103,7 +1125,7 @@ const sendForgotPasswordOtp = asyncHandler(async (req, res) => {
 
   const user = await User.findOne({ phoneNumber: check.phoneNumber });
   if (!user) {
-    await logOtpSend({ meta: check.meta, result: 'not_found' });
+    await abortReservedOtp(check, 'not_found');
     return res.status(404).json({
       status: 'error',
       message: 'Phone number not found'
@@ -1112,11 +1134,7 @@ const sendForgotPasswordOtp = asyncHandler(async (req, res) => {
 
   try {
     const result = await TwilioService.sendVerificationCode(check.phoneNumber);
-    await logOtpSend({
-      meta: { ...check.meta, userId: user._id },
-      result: 'sent',
-      twilioSid: result.twilioSid,
-    });
+    await recordOtpSend(check, result, { userId: user._id });
 
     res.status(200).json({
       status: 'success',
@@ -1127,7 +1145,7 @@ const sendForgotPasswordOtp = asyncHandler(async (req, res) => {
       }
     });
   } catch (error) {
-    await releaseGlobalBudget();
+    await releaseGlobalBudget(check);
     await logOtpSend({
       meta: { ...check.meta, userId: user._id },
       result: 'twilio_failed',

@@ -31,6 +31,8 @@ OTP_PER_PHONE_WINDOW_MAX=3
 OTP_PER_PHONE_DAILY_MAX=5
 OTP_GLOBAL_HOURLY_CAP=15
 OTP_GLOBAL_DAILY_CAP=100
+# Max successful OTP reservations per client IP per hour (Mongo, multi-process safe)
+OTP_PER_IP_HOURLY_CAP=3
 
 # MongoDB Configuration
 MONGODB_URI=your-mongodb-connection-string
