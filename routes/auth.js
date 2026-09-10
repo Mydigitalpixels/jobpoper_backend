@@ -30,12 +30,13 @@ const { protect, authorize } = require('../middleware/auth');
 const { uploadProfileImage, uploadVerificationDocuments, uploadWorkImages } = require('../middleware/upload');
 const {
   completeProfileLimiter,
-  registerLimiter,
-  loginLimiter,
   otpSendLimiter,
   otpVerifyLimiter,
   publicOtpLimiter,
   otpIpLimiter,
+  registerLimiter,
+  checkPhoneLimiter,
+  loginLimiter,
 } = require('../middleware/rateLimit');
 
 // Only rate-limit complete-profile calls that actually carry a referral code,
@@ -54,9 +55,19 @@ const referralRateGate = (req, res, next) => {
 router.post('/send-verification', otpIpLimiter, publicOtpLimiter, sendPhoneVerification);
 router.post('/resend-verification', otpIpLimiter, publicOtpLimiter, resendPhoneVerification);
 router.post('/verify-phone', publicOtpLimiter, verifyPhoneNumber);
+// SECURITY — /register is the amplifier that made both SMS-pumping incidents
+// possible: it is public, needs no OTP and returns a JWT for ANY phone number.
+// The attacker minted one account per number they wanted to pump and spent
+// each token on exactly one Twilio SMS, which reset every per-user limit.
+// Registration is a once-per-person event, so an IP cap costs real users
+// nothing. This does NOT make registration safe on its own — the destination
+// number caps in otpGuard are what actually bound the spend — but it removes
+// the free identity supply.
 router.post('/register', registerLimiter, register);
 router.post('/login', loginLimiter, login);
-router.post('/check-phone', registerLimiter, checkPhoneExists);
+// Unauthenticated account-enumeration oracle: answers "does this number have
+// an account?" for anyone who asks.
+router.post('/check-phone', checkPhoneLimiter, checkPhoneExists);
 
 // Forgot Password Flow — send-otp is public and costs Twilio money, so it
 // shares the same IP limiter as the legacy signup OTP routes.

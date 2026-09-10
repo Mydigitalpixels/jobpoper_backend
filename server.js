@@ -9,9 +9,31 @@ dotenv.config();
 
 const app = express();
 
-// DigitalOcean / nginx sit in front of Node. Without this, every client
-// shares the proxy IP and OTP rate limits either no-op or lock everyone out.
-app.set("trust proxy", 1);
+// TRUST PROXY — read this before changing it.
+//
+// `trust proxy` tells Express to believe the X-Forwarded-For header. That is
+// correct ONLY when every request really does arrive through a proxy you
+// control. Today the mobile app calls http://<host>:3001 directly (see
+// src/api/baseURL.ts), so there is no proxy in front of Node — and with
+// trust proxy on, ANY client can set its own X-Forwarded-For and choose the
+// IP that Express reports. That makes every IP-keyed rate limit bypassable
+// with one extra header and every IP in the OTP audit log fabricated.
+//
+// So it now defaults to OFF and is opted into explicitly once nginx is
+// terminating in front of Node AND port 3001 is closed to the internet:
+//
+//   TRUST_PROXY=1        -> trust exactly one proxy hop (nginx on this host)
+//   TRUST_PROXY=<ip,ip>  -> trust these proxy addresses only
+//   TRUST_PROXY unset    -> trust nothing (correct for direct exposure)
+const trustProxy = String(process.env.TRUST_PROXY || "").trim();
+if (trustProxy) {
+  const numeric = Number(trustProxy);
+  app.set("trust proxy", Number.isFinite(numeric) ? numeric : trustProxy);
+  console.log(`[server] trust proxy = ${trustProxy}`);
+} else {
+  app.set("trust proxy", false);
+  console.log("[server] trust proxy = false (X-Forwarded-For is ignored)");
+}
 
 // Middleware
 app.use(cors()); // Allow all origins

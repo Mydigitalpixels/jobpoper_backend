@@ -1,56 +1,88 @@
 const mongoose = require('mongoose');
 
 /**
- * Atomic OTP budget counters — one document per hour-bucket (and one per day).
- * Using findOneAndUpdate with $inc guarantees that concurrent requests cannot
- * overshoot the cap (the old count-then-send pattern had a TOCTOU race).
+ * Atomic OTP spend budget.
  *
- * Documents auto-expire via the TTL index so no cleanup job is needed.
+ * WHY THIS EXISTS
+ * ---------------
+ * The original global cap in otpGuard.js was a read-then-act check:
+ *
+ *     const sent = await OtpSendLog.countDocuments(...)   // READ
+ *     if (sent >= cap) deny                               // DECIDE
+ *     ...                                                 // await
+ *     await TwilioService.sendVerificationCode(...)       // ACT (costs money)
+ *     await logOtpSend({ result: 'sent' })                // WRITE (too late)
+ *
+ * Every concurrent request inside that window reads the same pre-burst count,
+ * so all of them pass and all of them send. The 05 Sep incident log shows
+ * exactly that shape: 12 sends in 4 seconds, five stamped in the same second.
+ *
+ * This collection replaces the count with a RESERVATION. `reserve()` is a
+ * single atomic findOneAndUpdate with $inc + upsert, so N concurrent callers
+ * get N distinct counter values and only the ones at or under the cap proceed.
+ * A cap of 15 means at most 15 Twilio calls, no matter how parallel the
+ * attacker is.
+ *
+ * Buckets are keyed by scope + time window, e.g.
+ *   global:h:2026-09-09T20      global:d:2026-09-09
+ *   country:+255:h:2026-09-09T20
+ *   phone:+255703123456:d:2026-09-09
+ *
+ * Documents TTL-delete themselves 48h after creation.
  */
 const otpBudgetSchema = new mongoose.Schema(
   {
-    _id: { type: String },           // e.g. "global:2026-09-05T20" or "country:+255:2026-09-05T20"
+    _id: { type: String },
     count: { type: Number, default: 0 },
-    expiresAt: { type: Date, required: true },
+    expiresAt: { type: Date },
   },
-  { timestamps: false }
+  { versionKey: false, timestamps: true }
 );
 
 otpBudgetSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
+const OtpBudget = mongoose.model('OtpBudget', otpBudgetSchema);
+
+const TTL_MS = 48 * 60 * 60 * 1000;
+
 /**
- * Atomically reserve one send against a budget bucket.
- * @param {string} bucketId  — e.g. "global:2026-09-05T20"
- * @param {number} cap       — maximum allowed count
- * @param {number} ttlMs     — how long the bucket lives (ms)
- * @returns {Promise<{allowed: boolean, count: number}>}
+ * Atomically claim one unit of budget.
+ * @returns {Promise<{ ok: boolean, count: number }>} ok=false means the cap is
+ *          already spent; the caller must NOT send and should release nothing
+ *          (the over-cap increment is harmless — it decays with the bucket).
  */
-otpBudgetSchema.statics.reserve = async function (bucketId, cap, ttlMs = 7200_000) {
-  const doc = await this.findOneAndUpdate(
+const reserve = async (bucketId, cap) => {
+  const doc = await OtpBudget.findOneAndUpdate(
     { _id: bucketId },
     {
       $inc: { count: 1 },
-      $setOnInsert: { expiresAt: new Date(Date.now() + ttlMs) },
+      $setOnInsert: { expiresAt: new Date(Date.now() + TTL_MS) },
     },
     { upsert: true, new: true }
   );
-  if (doc.count > cap) {
-    // Over budget — release the reservation
-    await this.updateOne({ _id: bucketId }, { $inc: { count: -1 } });
-    return { allowed: false, count: doc.count - 1 };
+  return { ok: doc.count <= cap, count: doc.count };
+};
+
+/** Give a reservation back — used when the send never happened. */
+const release = async (bucketId) => {
+  try {
+    await OtpBudget.updateOne({ _id: bucketId }, { $inc: { count: -1 } });
+  } catch (err) {
+    console.error('[OTP-BUDGET] release failed', bucketId, err.message);
   }
-  return { allowed: true, count: doc.count };
 };
 
-/**
- * Release a reservation (call on Twilio send failure so failed sends don't
- * eat into the budget).
- */
-otpBudgetSchema.statics.release = async function (bucketId) {
-  await this.updateOne(
-    { _id: bucketId, count: { $gt: 0 } },
-    { $inc: { count: -1 } }
-  );
+/** Release a list of bucket ids (best effort, never throws). */
+const releaseAll = async (bucketIds = []) => {
+  await Promise.all(bucketIds.map(release));
 };
 
-module.exports = mongoose.model('OtpBudget', otpBudgetSchema);
+const hourBucket = (d = new Date()) => d.toISOString().slice(0, 13); // 2026-09-09T20
+const dayBucket = (d = new Date()) => d.toISOString().slice(0, 10);  // 2026-09-09
+
+module.exports = OtpBudget;
+module.exports.reserve = reserve;
+module.exports.release = release;
+module.exports.releaseAll = releaseAll;
+module.exports.hourBucket = hourBucket;
+module.exports.dayBucket = dayBucket;
