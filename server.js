@@ -46,13 +46,6 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 // Public marketing pages (smart store redirect for referral shares)
 app.use(express.static(path.join(__dirname, "public")));
 
-const adminDistPath = path.join(__dirname, "admin-panel", "dist");
-const hasAdminBuild = require("fs").existsSync(adminDistPath);
-
-if (hasAdminBuild) {
-  app.use("/admin", express.static(adminDistPath));
-}
-
 // Routes
 const { authTrafficLimiter } = require("./middleware/rateLimit");
 const authRouter = require("./routes/auth");
@@ -99,12 +92,6 @@ app.get("/", (req, res) => {
 app.get(["/download", "/download/"], (req, res) => {
   res.sendFile(path.join(__dirname, "public", "download.html"));
 });
-
-if (hasAdminBuild) {
-  app.get(/^\/admin(\/.*)?$/, (req, res) => {
-    res.sendFile(path.join(adminDistPath, "index.html"));
-  });
-}
 
 // Error handling middleware
 app.use((err, req, res, next) => {
