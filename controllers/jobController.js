@@ -1668,6 +1668,7 @@ const getJobById = asyncHandler(async (req, res) => {
         "profile.fullName profile.profileImage profile.email phoneNumber workerId rating isProfessional verification.selfieImage verification.status professionalProfile.yearsOfExperience professionalProfile.bio",
       )
       .populate("category", "_id name slug icon")
+      .populate("forceClosedBy", "phoneNumber profile.fullName")
       .lean();
 
     if (!job) {
@@ -2760,14 +2761,38 @@ const getWorkerReviews = asyncHandler(async (req, res) => {
 // @desc    Client force-closes a task that has been in progress too long
 // @route   POST /api/jobs/:id/force-close
 // @access  Private (job owner)
+const FORCE_CLOSE_WAIT_MS = 24 * 60 * 60 * 1000;
+
+const formatRemainingWait = (remainingMs) => {
+  const totalMinutes = Math.max(1, Math.ceil(remainingMs / (60 * 1000)));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  const parts = [];
+  if (hours > 0) parts.push(`${hours} hour${hours !== 1 ? "s" : ""}`);
+  if (minutes > 0) parts.push(`${minutes} minute${minutes !== 1 ? "s" : ""}`);
+  return parts.join(" ") || "1 minute";
+};
+
+const clipNotificationMessage = (text) => {
+  const value = String(text || "").trim();
+  if (value.length <= 500) return value;
+  return `${value.slice(0, 497)}...`;
+};
+
 const forceCloseJob = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { reason } = req.body;
+  const trimmed = String(req.body?.reason || "").trim();
 
-  if (!reason || !reason.trim()) {
+  if (!trimmed) {
     return res.status(400).json({ status: "error", message: "A reason for closing the task is required" });
   }
-  if (reason.trim().length > 500) {
+  if (trimmed.length < 10) {
+    return res.status(400).json({
+      status: "error",
+      message: "Please provide a more detailed reason (at least 10 characters).",
+    });
+  }
+  if (trimmed.length > 500) {
     return res.status(400).json({ status: "error", message: "Reason cannot be more than 500 characters" });
   }
 
@@ -2787,13 +2812,19 @@ const forceCloseJob = asyncHandler(async (req, res) => {
     });
   }
 
-  // Must be at least 24 hours since the job was started
-  const hoursSinceStart = (Date.now() - new Date(job.startedAt).getTime()) / (1000 * 60 * 60);
-  if (hoursSinceStart < 24) {
-    const remainingHours = Math.ceil(24 - hoursSinceStart);
+  const startedMs = job.startedAt ? new Date(job.startedAt).getTime() : NaN;
+  if (!Number.isFinite(startedMs)) {
     return res.status(400).json({
       status: "error",
-      message: `Task can only be force-closed after 24 hours of being in progress. Please wait ${remainingHours} more hour${remainingHours !== 1 ? "s" : ""}.`,
+      message: "This task does not have a valid start time and cannot be force-closed.",
+    });
+  }
+
+  const remainingMs = startedMs + FORCE_CLOSE_WAIT_MS - Date.now();
+  if (remainingMs > 0) {
+    return res.status(400).json({
+      status: "error",
+      message: `Task can only be force-closed after 24 hours of being in progress. Please wait ${formatRemainingWait(remainingMs)}.`,
     });
   }
 
@@ -2804,7 +2835,7 @@ const forceCloseJob = asyncHandler(async (req, res) => {
     {
       $set: {
         status: "force_closed",
-        forceCloseReason: reason.trim(),
+        forceCloseReason: trimmed,
         forceClosedAt: now,
         forceClosedBy: req.user._id,
       },
@@ -2819,25 +2850,42 @@ const forceCloseJob = asyncHandler(async (req, res) => {
     });
   }
 
-  // Notify the assigned worker (in-app + push)
+  const notifyForceClose = async (recipient, title, message) => {
+    const notif = await Notification.create({
+      recipient,
+      type: "job_force_closed",
+      title,
+      message: clipNotificationMessage(message),
+      relatedEntityType: "Job",
+      relatedEntityId: updated._id,
+      navigationIdentifier: `job:${updated._id}`,
+      isRead: false,
+    });
+    sendPushToUserForNotification(notif.recipient, notif, Device).catch((e) =>
+      console.warn("[FCM] job_force_closed push failed", e && e.message),
+    );
+  };
+
   if (updated.assignedWorker) {
     try {
-      const notif = await Notification.create({
-        recipient: updated.assignedWorker,
-        type: "job_force_closed",
-        title: "Task Closed by Client",
-        message: `The task "${updated.title}" has been closed by the client. Reason: ${reason.trim()}`,
-        relatedEntityType: "Job",
-        relatedEntityId: updated._id,
-        navigationIdentifier: `job:${updated._id}`,
-        isRead: false,
-      });
-      sendPushToUserForNotification(notif.recipient, notif, Device).catch((e) =>
-        console.warn("[FCM] job_force_closed push failed", e && e.message),
+      await notifyForceClose(
+        updated.assignedWorker,
+        "Task Closed by Client",
+        `The task "${updated.title}" has been closed by the client. Reason: ${trimmed}`,
       );
     } catch (error) {
       console.error("Error creating job_force_closed notification:", error);
     }
+  }
+
+  try {
+    await notifyForceClose(
+      updated.postedBy,
+      "Task Closed",
+      `You closed the task "${updated.title}". Reason: ${trimmed}`,
+    );
+  } catch (error) {
+    console.error("Error creating owner job_force_closed notification:", error);
   }
 
   res.status(200).json({

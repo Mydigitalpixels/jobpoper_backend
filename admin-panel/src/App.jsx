@@ -97,6 +97,15 @@ function App() {
   const [forceClosedJobs, setForceClosedJobs] = useState([]);
   const [selectedForceClosedId, setSelectedForceClosedId] = useState("");
   const [selectedForceClosedJob, setSelectedForceClosedJob] = useState(null);
+  const [forceClosedSearchInput, setForceClosedSearchInput] = useState("");
+  const [forceClosedSearch, setForceClosedSearch] = useState("");
+  const [forceClosedPage, setForceClosedPage] = useState(1);
+  const [forceClosedPagination, setForceClosedPagination] = useState({
+    total: 0,
+    page: 1,
+    pages: 1,
+  });
+  const [jobStatusFilter, setJobStatusFilter] = useState("all");
 
   const normalUsers = useMemo(
     () => users.filter((user) => !user.isProfessional),
@@ -105,6 +114,13 @@ function App() {
   const professionals = useMemo(
     () => users.filter((user) => user.isProfessional),
     [users],
+  );
+  const filteredJobs = useMemo(
+    () =>
+      jobStatusFilter === "all"
+        ? jobs
+        : jobs.filter((job) => job.status === jobStatusFilter),
+    [jobs, jobStatusFilter],
   );
 
   const statsCards = useMemo(
@@ -268,6 +284,13 @@ function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, activeView, reportStatusFilter]);
+
+  useEffect(() => {
+    if (token && activeView === "force-closed") {
+      loadForceClosedJobs(token, { page: forceClosedPage, search: forceClosedSearch });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, activeView, forceClosedPage, forceClosedSearch]);
 
   const handleLogin = async (event) => {
     event.preventDefault();
@@ -453,6 +476,37 @@ function App() {
       setPageError(error.message);
     } finally {
       setReportsLoading(false);
+    }
+  };
+
+  const loadForceClosedJobs = async (
+    authToken,
+    { page = forceClosedPage, search = forceClosedSearch } = {},
+  ) => {
+    try {
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: "20",
+      });
+      if (search.trim()) params.set("search", search.trim());
+      const payload = await apiRequest(`/admin/force-closed-jobs?${params}`, {
+        token: authToken,
+      });
+      const nextJobs = payload?.data?.jobs || [];
+      const pagination = payload?.data?.pagination || {
+        total: nextJobs.length,
+        page,
+        pages: 1,
+      };
+      setForceClosedJobs(nextJobs);
+      setForceClosedPagination(pagination);
+      const keepId = selectedForceClosedId;
+      const nextSelected =
+        nextJobs.find((job) => String(job.id) === String(keepId)) || nextJobs[0] || null;
+      setSelectedForceClosedId(nextSelected?.id || "");
+      setSelectedForceClosedJob(nextSelected);
+    } catch (error) {
+      setPageError(error.message);
     }
   };
 
@@ -977,10 +1031,31 @@ function App() {
             <section className="panel">
               <div className="panel-header">
                 <h3>Tasks</h3>
-                <span>{jobs.length}</span>
+                <span>{filteredJobs.length}</span>
+              </div>
+                <div className="report-filter" style={{ marginBottom: 12, flexWrap: "wrap" }}>
+                {["all", "open", "job_started", "completed", "cancelled", "force_closed"].map(
+                  (status) => (
+                    <button
+                      key={status}
+                      className={
+                        jobStatusFilter === status ? "chip-button active" : "chip-button"
+                      }
+                      onClick={() => setJobStatusFilter(status)}
+                    >
+                      {status === "all"
+                        ? "All"
+                        : status === "job_started"
+                          ? "In Progress"
+                          : status === "force_closed"
+                            ? "Force Closed"
+                            : status[0].toUpperCase() + status.slice(1)}
+                    </button>
+                  ),
+                )}
               </div>
               <SelectableList
-                items={jobs}
+                items={filteredJobs}
                 selectedId={selectedJobId}
                 onSelect={(job) => handleJobSelect(job.id)}
                 renderPrimary={(job) => job.title}
@@ -1026,6 +1101,40 @@ function App() {
                     value={formatLocation(selectedJob.location, selectedJob.jobType)}
                     multiline
                   />
+                  {selectedJob.status === "force_closed" ? (
+                    <>
+                      <DetailRow
+                        label="Assigned Worker"
+                        value={
+                          selectedJob.assignedWorker
+                            ? `${selectedJob.assignedWorker.fullName || selectedJob.assignedWorker.phoneNumber || "Unknown"} (${selectedJob.assignedWorker.workerId || "N/A"})`
+                            : "None"
+                        }
+                      />
+                      <DetailRow label="Started At" value={formatDate(selectedJob.startedAt)} />
+                      <DetailRow
+                        label="Force Closed At"
+                        value={formatDate(selectedJob.forceClosedAt)}
+                      />
+                      <DetailRow
+                        label="Duration In Progress"
+                        value={selectedJob.durationInProgress || "-"}
+                      />
+                      <DetailRow
+                        label="Closed By"
+                        value={
+                          selectedJob.forceClosedBy?.fullName ||
+                          selectedJob.forceClosedBy?.phoneNumber ||
+                          "Unknown"
+                        }
+                      />
+                      <DetailRow
+                        label="Reason"
+                        value={selectedJob.forceCloseReason || "No reason provided"}
+                        multiline
+                      />
+                    </>
+                  ) : null}
                 </div>
               ) : (
                 <EmptyPanel message="Choose a task to see details." />
@@ -1223,8 +1332,26 @@ function App() {
             <section className="panel">
               <div className="panel-header">
                 <h3>Force Closed Tasks</h3>
-                <span>{forceClosedJobs.length}</span>
+                <span>{forceClosedPagination.total || forceClosedJobs.length}</span>
               </div>
+              <form
+                className="force-closed-search"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  setForceClosedPage(1);
+                  setForceClosedSearch(forceClosedSearchInput.trim());
+                }}
+              >
+                <input
+                  type="search"
+                  placeholder="Search title, owner, worker, reason"
+                  value={forceClosedSearchInput}
+                  onChange={(event) => setForceClosedSearchInput(event.target.value)}
+                />
+                <button className="chip-button active" type="submit">
+                  Search
+                </button>
+              </form>
               <SelectableList
                 items={forceClosedJobs}
                 selectedId={selectedForceClosedId}
@@ -1237,6 +1364,29 @@ function App() {
                   `${job.jobType} • ${formatDate(job.forceClosedAt)}`
                 }
               />
+              {forceClosedPagination.pages > 1 ? (
+                <div className="force-closed-pagination">
+                  <button
+                    className="chip-button"
+                    type="button"
+                    disabled={forceClosedPage <= 1}
+                    onClick={() => setForceClosedPage((page) => Math.max(1, page - 1))}
+                  >
+                    Previous
+                  </button>
+                  <span>
+                    Page {forceClosedPagination.page} of {forceClosedPagination.pages}
+                  </span>
+                  <button
+                    className="chip-button"
+                    type="button"
+                    disabled={!forceClosedPagination.hasNextPage}
+                    onClick={() => setForceClosedPage((page) => page + 1)}
+                  >
+                    Next
+                  </button>
+                </div>
+              ) : null}
             </section>
 
             <section className="panel detail-panel">
@@ -1273,6 +1423,10 @@ function App() {
                   <DetailRow
                     label="Force Closed At"
                     value={formatDate(selectedForceClosedJob.forceClosedAt)}
+                  />
+                  <DetailRow
+                    label="Duration In Progress"
+                    value={selectedForceClosedJob.durationInProgress || "-"}
                   />
                   <DetailRow
                     label="Closed By"

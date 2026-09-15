@@ -110,6 +110,24 @@ const buildAdminJob = (job) => ({
   createdAt: job.createdAt,
 });
 
+const escapeRegex = (value) => String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const formatInProgressDuration = (startedAt, closedAt) => {
+  if (!startedAt || !closedAt) return null;
+  const startMs = new Date(startedAt).getTime();
+  const endMs = new Date(closedAt).getTime();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return null;
+  const totalMinutes = Math.max(0, Math.round((endMs - startMs) / 60000));
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+  const minutes = totalMinutes % 60;
+  const parts = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (hours > 0) parts.push(`${hours}h`);
+  if (minutes > 0 && days === 0) parts.push(`${minutes}m`);
+  return parts.join(" ") || "0m";
+};
+
 const buildAdminJobDetail = (job) => ({
   ...buildAdminJob(job),
   description: job.description,
@@ -128,8 +146,25 @@ const buildAdminJobDetail = (job) => ({
             : null,
       }))
     : [],
+  startedAt: job.startedAt || null,
   forceCloseReason: job.forceCloseReason || null,
   forceClosedAt: job.forceClosedAt || null,
+  forceClosedBy: job.forceClosedBy
+    ? {
+        id: job.forceClosedBy._id || job.forceClosedBy || null,
+        phoneNumber: job.forceClosedBy.phoneNumber || "",
+        fullName: job.forceClosedBy.profile?.fullName || "",
+      }
+    : null,
+  assignedWorker: job.assignedWorker
+    ? {
+        id: job.assignedWorker._id || job.assignedWorker || null,
+        phoneNumber: job.assignedWorker.phoneNumber || "",
+        fullName: job.assignedWorker.profile?.fullName || "",
+        workerId: job.assignedWorker.workerId || "",
+      }
+    : null,
+  durationInProgress: formatInProgressDuration(job.startedAt, job.forceClosedAt),
   updatedAt: job.updatedAt,
 });
 
@@ -660,7 +695,9 @@ const getAdminJobById = asyncHandler(async (req, res) => {
   const job = await Job.findById(req.params.jobId)
     .populate("postedBy", "phoneNumber profile.fullName")
     .populate("category", "_id name slug icon")
-    .populate("interestedUsers.user", "phoneNumber profile.fullName");
+    .populate("interestedUsers.user", "phoneNumber profile.fullName")
+    .populate("assignedWorker", "phoneNumber profile.fullName workerId")
+    .populate("forceClosedBy", "phoneNumber profile.fullName");
 
   if (!job) {
     return res.status(404).json({
@@ -708,16 +745,38 @@ const getVerificationRequests = asyncHandler(async (req, res) => {
 // Despite the path name, this endpoint accepts an optional `?status=` query
 // parameter to filter by any status — pending (default, preserves legacy
 // behaviour), approved, or rejected. The admin UI uses status=approved to
+// power the "Approved" tab on the business-approvals screen.
+
 // @desc    Get all force-closed jobs for admin panel
 // @route   GET /api/admin/force-closed-jobs
 // @access  Private/Admin
 const getForceClosedJobs = asyncHandler(async (req, res) => {
   const page = parseInt(req.query.page, 10) || 1;
-  const limit = parseInt(req.query.limit, 10) || 20;
+  const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100);
   const skip = (page - 1) * limit;
+  const search = String(req.query.search || "").trim();
+
+  const filter = { status: "force_closed" };
+  if (search) {
+    const rx = new RegExp(escapeRegex(search), "i");
+    const matchingUsers = await User.find({
+      $or: [
+        { "profile.fullName": rx },
+        { phoneNumber: rx },
+        { workerId: rx },
+      ],
+    }).select("_id");
+    const userIds = matchingUsers.map((u) => u._id);
+    filter.$or = [
+      { title: rx },
+      { forceCloseReason: rx },
+      { postedBy: { $in: userIds } },
+      { assignedWorker: { $in: userIds } },
+    ];
+  }
 
   const [jobs, total] = await Promise.all([
-    Job.find({ status: "force_closed" })
+    Job.find(filter)
       .sort({ forceClosedAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -725,7 +784,7 @@ const getForceClosedJobs = asyncHandler(async (req, res) => {
       .populate("assignedWorker", "phoneNumber profile.fullName workerId")
       .populate("forceClosedBy", "phoneNumber profile.fullName")
       .populate("category", "_id name slug icon"),
-    Job.countDocuments({ status: "force_closed" }),
+    Job.countDocuments(filter),
   ]);
 
   res.status(200).json({
@@ -751,11 +810,12 @@ const getForceClosedJobs = asyncHandler(async (req, res) => {
             }
           : null,
         startedAt: job.startedAt || null,
+        durationInProgress: formatInProgressDuration(job.startedAt, job.forceClosedAt),
       })),
       pagination: {
         total,
         page,
-        pages: Math.ceil(total / limit),
+        pages: Math.ceil(total / limit) || 1,
         hasNextPage: page < Math.ceil(total / limit),
         hasPrevPage: page > 1,
       },
@@ -763,7 +823,6 @@ const getForceClosedJobs = asyncHandler(async (req, res) => {
   });
 });
 
-// power the "Approved" tab on the business-approvals screen.
 const getPendingBusinessProfileRequests = asyncHandler(async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit, 10) || 100, 200);
 
