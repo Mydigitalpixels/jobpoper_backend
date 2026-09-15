@@ -9,8 +9,8 @@ const PhoneVerification = require('../models/PhoneVerification');
 const TwilioService = require('../services/twilioService');
 const {
   assertCanSendOtp,
+  releaseOtpBudget,
   logOtpSend,
-  releaseGlobalBudget,
   resultForDenial,
 } = require('../services/otpGuard');
 const { sendPushToUserForNotification } = require('../services/pushNotificationService');
@@ -80,6 +80,33 @@ const respondOtpDenied = (res, check) =>
       ? { data: { retryAfterSeconds: check.retryAfterSeconds } }
       : {}),
   });
+
+/**
+ * Log the outcome of a TwilioService.sendVerificationCode() call.
+ *
+ * twilioService reuses a still-valid pending Verify instead of creating a
+ * second SMS charge, and signals that with result.reused. A reused send costs
+ * NOTHING, so it must not be logged as 'sent' and must not keep the budget
+ * reservation — otherwise a legitimate user retrying inside the 10-minute
+ * window burns the hourly, daily, per-IP and per-country caps for a message
+ * that was never billed.
+ */
+const recordOtpSend = async (check, result, extraMeta = {}) => {
+  if (result && result.reused) {
+    await releaseOtpBudget(check);
+    await logOtpSend({
+      meta: { ...check.meta, ...extraMeta },
+      result: 'reused_pending',
+      twilioSid: result.twilioSid,
+    });
+    return;
+  }
+  await logOtpSend({
+    meta: { ...check.meta, ...extraMeta },
+    result: 'sent',
+    twilioSid: result.twilioSid,
+  });
+};
 
 // "+923001234567" -> "+92 ••• ••• 4567". Purely for display in the verify sheet
 // so the user can confirm which number the code went to without us echoing the
@@ -151,6 +178,8 @@ const sendPhoneVerification = asyncHandler(async (req, res) => {
   // Check if phone number already exists
   const existingUser = await User.findOne({ phoneNumber: check.phoneNumber });
   if (existingUser) {
+    // No SMS is sent on this path, so hand the reserved budget back.
+    await releaseOtpBudget(check);
     await logOtpSend({ meta: check.meta, result: 'already_registered' });
     return res.status(400).json({
       status: 'error',
@@ -160,7 +189,7 @@ const sendPhoneVerification = asyncHandler(async (req, res) => {
 
   try {
     const result = await TwilioService.sendVerificationCode(check.phoneNumber);
-    await logOtpSend({ meta: check.meta, result: 'sent', twilioSid: result.twilioSid });
+    await recordOtpSend(check, result);
 
     res.status(200).json({
       status: 'success',
@@ -171,7 +200,7 @@ const sendPhoneVerification = asyncHandler(async (req, res) => {
       }
     });
   } catch (error) {
-    await releaseGlobalBudget();
+    await releaseOtpBudget(check);
     await logOtpSend({
       meta: check.meta,
       result: 'twilio_failed',
@@ -209,6 +238,8 @@ const resendPhoneVerification = asyncHandler(async (req, res) => {
 
   const existingUser = await User.findOne({ phoneNumber: check.phoneNumber });
   if (existingUser) {
+    // No SMS is sent on this path, so hand the reserved budget back.
+    await releaseOtpBudget(check);
     await logOtpSend({ meta: check.meta, result: 'already_registered' });
     return res.status(400).json({
       status: 'error',
@@ -218,7 +249,7 @@ const resendPhoneVerification = asyncHandler(async (req, res) => {
 
   try {
     const result = await TwilioService.sendVerificationCode(check.phoneNumber);
-    await logOtpSend({ meta: check.meta, result: 'sent', twilioSid: result.twilioSid });
+    await recordOtpSend(check, result);
 
     res.status(200).json({
       status: 'success',
@@ -229,7 +260,7 @@ const resendPhoneVerification = asyncHandler(async (req, res) => {
       }
     });
   } catch (error) {
-    await releaseGlobalBudget();
+    await releaseOtpBudget(check);
     await logOtpSend({
       meta: check.meta,
       result: 'twilio_failed',
@@ -704,18 +735,26 @@ const sendMyPhoneOtp = asyncHandler(async (req, res) => {
     });
   }
 
-  // ── Account age gate ──────────────────────────────────────────────────────
-  // The register→send-otp attack loop completes in under 1 second. Making new
-  // accounts wait 60s breaks the loop without affecting real users (who spend
-  // at least that long navigating to the verify screen).
-  const MIN_ACCOUNT_AGE_MS = 60_000; // 60 seconds
-  const accountAgeMs = Date.now() - new Date(user.createdAt).getTime();
-  if (accountAgeMs < MIN_ACCOUNT_AGE_MS) {
-    const waitSec = Math.ceil((MIN_ACCOUNT_AGE_MS - accountAgeMs) / 1000);
+  // ACCOUNT MATURITY GATE
+  // The pumping loop is: POST /auth/register (free JWT, any number) ->
+  // POST /auth/phone/send-otp (one billed SMS) -> next number. Both requests
+  // land inside the same second. A real user has to read the screen, tap
+  // through and reach the verify sheet, which always takes longer than this.
+  // Making a brand-new account wait breaks the loop and costs nobody anything.
+  const minAgeMs = Number(process.env.OTP_MIN_ACCOUNT_AGE_SECONDS || 60) * 1000;
+  const accountAgeMs = Date.now() - new Date(user.createdAt || 0).getTime();
+  if (minAgeMs > 0 && Number.isFinite(accountAgeMs) && accountAgeMs < minAgeMs) {
+    const retryAfterSeconds = Math.max(Math.ceil((minAgeMs - accountAgeMs) / 1000), 1);
+    console.warn('[PHONE-OTP] account too new', {
+      userId: String(user._id),
+      accountAgeMs,
+      ip: req.ip,
+    });
     return res.status(429).json({
       status: 'error',
       code: 'ACCOUNT_TOO_NEW',
-      message: `Please wait ${waitSec} seconds before requesting a verification code.`,
+      message: 'Please wait a moment before requesting a code.',
+      data: { retryAfterSeconds },
     });
   }
 
@@ -737,7 +776,7 @@ const sendMyPhoneOtp = asyncHandler(async (req, res) => {
 
   try {
     const result = await TwilioService.sendVerificationCode(check.phoneNumber);
-    await logOtpSend({ meta: check.meta, result: 'sent', twilioSid: result.twilioSid });
+    await recordOtpSend(check, result);
 
     return res.status(200).json({
       status: 'success',
@@ -753,9 +792,7 @@ const sendMyPhoneOtp = asyncHandler(async (req, res) => {
       userId: String(user._id),
       error: error.message,
     });
-    // Release the atomic budget reservation so a failed send doesn't eat
-    // into the hourly/daily cap.
-    await releaseGlobalBudget();
+    await releaseOtpBudget(check);
     await logOtpSend({
       meta: check.meta,
       result: 'twilio_failed',
@@ -1103,6 +1140,8 @@ const sendForgotPasswordOtp = asyncHandler(async (req, res) => {
 
   const user = await User.findOne({ phoneNumber: check.phoneNumber });
   if (!user) {
+    // No SMS is sent on this path, so hand the reserved budget back.
+    await releaseOtpBudget(check);
     await logOtpSend({ meta: check.meta, result: 'not_found' });
     return res.status(404).json({
       status: 'error',
@@ -1112,11 +1151,7 @@ const sendForgotPasswordOtp = asyncHandler(async (req, res) => {
 
   try {
     const result = await TwilioService.sendVerificationCode(check.phoneNumber);
-    await logOtpSend({
-      meta: { ...check.meta, userId: user._id },
-      result: 'sent',
-      twilioSid: result.twilioSid,
-    });
+    await recordOtpSend(check, result, { userId: user._id });
 
     res.status(200).json({
       status: 'success',
@@ -1127,7 +1162,7 @@ const sendForgotPasswordOtp = asyncHandler(async (req, res) => {
       }
     });
   } catch (error) {
-    await releaseGlobalBudget();
+    await releaseOtpBudget(check);
     await logOtpSend({
       meta: { ...check.meta, userId: user._id },
       result: 'twilio_failed',

@@ -10,27 +10,45 @@ ALLOW_TEST_OTP=false
 # Leave false until the new app build is live. Then set true and restart.
 ENFORCE_PHONE_VERIFICATION=false
 
-# ── OTP spend guards ────────────────────────────────────────────────────────
+# OTP spend guards — hardened 10 Sep 2026 after the second SMS-pumping attack.
 #
-# COUNTRY ALLOWLIST (recommended) — if set, ONLY these country codes can
-# receive OTP SMS. Add new countries as your user base grows.
-# When this is set, OTP_BLOCKED_COUNTRY_CODES is ignored.
+# ALLOWLIST (closed by default). Only these calling codes can receive an OTP.
+# Leave EMPTY to fall back to worldwide + blocklist, which is what let both
+# incidents through. Add a code and restart when you genuinely open a market.
+#   92 = Pakistan, 91 = India, 55 = Brazil
 OTP_ALLOWED_COUNTRY_CODES=92,91,55
 
-# PRIMARY countries — no per-country throttle. Others are capped at
-# OTP_SECONDARY_COUNTRY_HOURLY per hour.
-OTP_PRIMARY_COUNTRY_CODES=92,91,55
-OTP_SECONDARY_COUNTRY_HOURLY=5
-
-# BLOCKLIST (fallback — only used when ALLOWED list is empty)
+# Blocklist — still honoured, and evaluated BEFORE the allowlist.
+# 255 = Tanzania (05 Sep incident).
 OTP_BLOCKED_COUNTRY_CODES=255
 
-# Rate / budget controls
+# Countries treated as "primary". Everything else is additionally held to
+# OTP_SECONDARY_COUNTRY_HOURLY, so a new pumping target trickles, never floods.
+OTP_PRIMARY_COUNTRY_CODES=92,91,55
+OTP_SECONDARY_COUNTRY_HOURLY=3
+
+# Spend caps. These are now ATOMIC reservations (models/OtpBudget.js), so a
+# concurrent burst cannot overshoot them the way it did on 05 Sep.
+# Observed real traffic is 1-2 OTPs/day, so 15/hour is ~10x headroom.
+OTP_GLOBAL_HOURLY_CAP=15
+OTP_GLOBAL_DAILY_CAP=120
 OTP_COOLDOWN_SECONDS=90
 OTP_PER_PHONE_WINDOW_MAX=3
 OTP_PER_PHONE_DAILY_MAX=5
-OTP_GLOBAL_HOURLY_CAP=15
-OTP_GLOBAL_DAILY_CAP=100
+
+# Max successful OTP reservations per client IP per hour (Mongo, multi-process safe)
+OTP_PER_IP_HOURLY_CAP=3
+
+# An account must be this old before it can spend an OTP. Breaks the
+# register -> send-otp loop, which completes in well under a second.
+OTP_MIN_ACCOUNT_AGE_SECONDS=60
+
+# TRUST PROXY — leave UNSET while the app talks to http://<host>:3001 directly.
+# With no proxy in front of Node, enabling this lets any client forge
+# X-Forwarded-For, which defeats every IP-keyed rate limit and poisons the OTP
+# audit log. Set to 1 only once nginx terminates in front and port 3001 is
+# firewalled off.
+# TRUST_PROXY=1
 
 # MongoDB Configuration
 MONGODB_URI=your-mongodb-connection-string

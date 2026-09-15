@@ -135,6 +135,23 @@ class TwilioService {
         };
       }
 
+      // Reuse a still-valid Verify instead of creating another SMS charge.
+      const pending = await PhoneVerification.findOne({
+        phoneNumber: normalizedPhone,
+        isVerified: false,
+        expiresAt: { $gt: new Date() },
+        twilioSid: { $regex: /^VE/ },
+      }).sort({ createdAt: -1 });
+
+      if (pending) {
+        return {
+          success: true,
+          message: "Verification code already sent",
+          twilioSid: pending.twilioSid,
+          reused: true,
+        };
+      }
+
       // Use Twilio Verify service.
       // Do NOT pass customFriendlyName — that requires Twilio's paid
       // "Custom Company Name" feature (error 60204 if enabled without approval).

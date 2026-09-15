@@ -2,90 +2,69 @@ const OtpSendLog = require('../models/OtpSendLog');
 const OtpBudget = require('../models/OtpBudget');
 
 /**
- * Server-side OTP spend protection — hardened after the Sep 2026 SMS-pumping
- * incident.
+ * Server-side OTP spend protection.
  *
- * Layers (checked in order):
+ * Hardened 10 Sep 2026 after the second SMS-pumping incident. What changed and
+ * why (see docs/ for the full incident report):
  *
- *   1. E.164 format only — junk numbers never reach Twilio.
- *   2. Country ALLOWLIST (OTP_ALLOWED_COUNTRY_CODES) — if set, only listed
- *      country codes may receive SMS. Falls back to the old blocklist
- *      (OTP_BLOCKED_COUNTRY_CODES) for backward compat.
- *   3. Per-number cooldown (default 60s).
- *   4. Per-number caps (3 / 15 min, 8 / 24 h).
- *   5. Per-country hourly cap for non-primary countries (default 5/hr).
- *   6. ATOMIC global hourly + daily cap via OtpBudget (no more TOCTOU race).
+ *   - Country ALLOWLIST (OTP_ALLOWED_COUNTRY_CODES). The blocklist could only
+ *     ever be armed after an attack, one country at a time. An allowlist is
+ *     closed by default: a country you do not serve costs nothing to refuse.
+ *     The blocklist is kept and still applies first.
+ *   - Correct calling-code detection. countryPrefixOf() used to slice the
+ *     first two digits, so Tanzania (+255) was logged as "+25" and every
+ *     3-digit-code country was mis-grouped. Country caps and the abuse report
+ *     were both wrong because of it.
+ *   - ATOMIC caps via OtpBudget reservations instead of count-then-send. The
+ *     old global cap was a race: concurrent requests all read the same
+ *     pre-burst count and all passed.
+ *   - Per-country hourly cap, so a brand-new pumping target trickles instead
+ *     of flooding.
+ *   - Per-IP hourly cap (Mongo, multi-process safe) so phone rotation from one
+ *     network cannot spend the global budget.
+ *   - clientIp() no longer trusts the raw X-Forwarded-For header, which any
+ *     client can forge. It uses req.ip, which Express resolves using the
+ *     trust-proxy setting in server.js.
  *
  * Call assertCanSendOtp() BEFORE TwilioService.sendVerificationCode().
- * Call logOtpSend() on every outcome, including rejects.
- * Call releaseGlobalBudget() if Twilio send fails (so failed sends don't eat
- * into the budget).
+ * If the send does NOT happen after an ok:true result (Twilio threw, or the
+ * controller bailed out), call releaseOtpBudget(check) so the reservation is
+ * handed back.
+ * Call logOtpSend() on every outcome, including rejects, so the next incident
+ * is reconstructable.
  */
 
 const E164 = /^\+[1-9]\d{6,14}$/;
 
-// ── Config readers ───────────────────────────────────────────────────────────
+// ── env helpers ───────────────────────────────────────────────────────────────
 
-const cooldownSeconds = () => {
-  const n = Number(process.env.OTP_COOLDOWN_SECONDS);
-  return Number.isFinite(n) && n > 0 ? n : 60;
+const num = (name, fallback) => {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
 };
 
-const perPhoneWindowMax = () => {
-  const n = Number(process.env.OTP_PER_PHONE_WINDOW_MAX);
-  return Number.isFinite(n) && n > 0 ? n : 3;
-};
+const cooldownSeconds = () => num('OTP_COOLDOWN_SECONDS', 90);
+const perPhoneWindowMax = () => num('OTP_PER_PHONE_WINDOW_MAX', 3);
+const perPhoneDailyMax = () => num('OTP_PER_PHONE_DAILY_MAX', 5);
+const globalHourlyCap = () => num('OTP_GLOBAL_HOURLY_CAP', 15);
+const globalDailyCap = () => num('OTP_GLOBAL_DAILY_CAP', 120);
+const secondaryCountryHourlyCap = () => num('OTP_SECONDARY_COUNTRY_HOURLY', 3);
+const perIpHourlyCap = () => num('OTP_PER_IP_HOURLY_CAP', 3);
 
-const perPhoneDailyMax = () => {
-  const n = Number(process.env.OTP_PER_PHONE_DAILY_MAX);
-  return Number.isFinite(n) && n > 0 ? n : 8;
-};
-
-const globalHourlyCap = () => {
-  const n = Number(process.env.OTP_GLOBAL_HOURLY_CAP);
-  return Number.isFinite(n) && n > 0 ? n : 15;   // was 80 — lowered after incident
-};
-
-const globalDailyCap = () => {
-  const n = Number(process.env.OTP_GLOBAL_DAILY_CAP);
-  return Number.isFinite(n) && n > 0 ? n : 100;
-};
-
-const secondaryCountryHourlyCap = () => {
-  const n = Number(process.env.OTP_SECONDARY_COUNTRY_HOURLY);
-  return Number.isFinite(n) && n > 0 ? n : 5;
-};
-
-const parseCsvEnv = (key) =>
-  String(process.env[key] || '')
+const parseCodeList = (raw) =>
+  String(raw || '')
     .split(',')
     .map((s) => s.trim())
-    .filter(Boolean);
-
-/** Countries whose OTP traffic is expected — no per-country throttle. */
-const primaryCountryCodes = () => {
-  const raw = parseCsvEnv('OTP_PRIMARY_COUNTRY_CODES');
-  return (raw.length ? raw : ['92', '91', '55']).map((s) =>
-    s.startsWith('+') ? s : `+${s.replace(/\D/g, '')}`
-  );
-};
-
-/** ALLOWLIST — if non-empty, ONLY these countries may receive SMS. */
-const allowedPrefixes = () => {
-  const raw = parseCsvEnv('OTP_ALLOWED_COUNTRY_CODES');
-  if (!raw.length) return [];  // allowlist not active
-  return raw.map((s) => (s.startsWith('+') ? s : `+${s.replace(/\D/g, '')}`));
-};
-
-/** BLOCKLIST — backward compat, only checked when allowlist is empty. */
-const blockedPrefixes = () => {
-  const raw = parseCsvEnv('OTP_BLOCKED_COUNTRY_CODES');
-  return raw
+    .filter(Boolean)
     .map((s) => (s.startsWith('+') ? s : `+${s.replace(/\D/g, '')}`))
     .filter((s) => s.length > 1);
-};
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+const blockedPrefixes = () => parseCodeList(process.env.OTP_BLOCKED_COUNTRY_CODES);
+const allowedPrefixes = () => parseCodeList(process.env.OTP_ALLOWED_COUNTRY_CODES);
+const primaryPrefixes = () =>
+  parseCodeList(process.env.OTP_PRIMARY_COUNTRY_CODES || '92,91,55');
+
+// ── phone helpers ─────────────────────────────────────────────────────────────
 
 const normalizeOtpPhone = (phoneNumber) =>
   String(phoneNumber || '').trim().replace(/[\s\-().]/g, '');
@@ -99,23 +78,55 @@ const maskPhone = (phoneNumber) => {
 };
 
 /**
- * Best-effort calling-code prefix (not a full libphonenumber parse).
- * 1-digit NANP, then 2, then 3.
+ * ITU-T E.164 country calling codes. Checked shortest-first, which is correct
+ * because no 2- or 3-digit code begins with "1" or "7" (the only 1-digit
+ * codes), and no 3-digit code begins with any assigned 2-digit code.
  */
+const CALLING_CODES = new Set(
+  (
+    '1 7 ' +
+    '20 27 30 31 32 33 34 36 39 40 41 43 44 45 46 47 48 49 51 52 53 54 55 56 ' +
+    '57 58 60 61 62 63 64 65 66 81 82 84 86 90 91 92 93 94 95 98 ' +
+    '211 212 213 216 218 220 221 222 223 224 225 226 227 228 229 230 231 232 ' +
+    '233 234 235 236 237 238 239 240 241 242 243 244 245 246 247 248 249 250 ' +
+    '251 252 253 254 255 256 257 258 260 261 262 263 264 265 266 267 268 269 ' +
+    '290 291 297 298 299 350 351 352 353 354 355 356 357 358 359 370 371 372 ' +
+    '373 374 375 376 377 378 379 380 381 382 383 385 386 387 389 420 421 423 ' +
+    '500 501 502 503 504 505 506 507 508 509 590 591 592 593 594 595 596 597 ' +
+    '598 599 670 672 673 674 675 676 677 678 679 680 681 682 683 685 686 687 ' +
+    '688 689 690 691 692 800 808 850 852 853 855 856 870 878 880 881 882 883 ' +
+    '886 888 960 961 962 963 964 965 966 967 968 970 971 972 973 974 975 976 ' +
+    '977 979 992 993 994 995 996 998'
+  ).split(/\s+/)
+);
+
+/** Real calling-code prefix, e.g. "+255" for Tanzania, "+1" for NANP. */
 const countryPrefixOf = (e164) => {
   const digits = String(e164 || '').replace(/\D/g, '');
   if (!digits) return '';
-  if (digits.startsWith('1') && digits.length >= 11) return '+1';
-  if (digits.length >= 3) return `+${digits.slice(0, 2)}`;
-  return `+${digits}`;
+  for (const len of [1, 2, 3]) {
+    const candidate = digits.slice(0, len);
+    if (candidate.length === len && CALLING_CODES.has(candidate)) {
+      return `+${candidate}`;
+    }
+  }
+  return `+${digits.slice(0, 3)}`;
 };
 
 /**
- * FIXED: Use req.ip which respects app.set("trust proxy", 1) and picks the
- * LAST untrusted hop — not the first X-Forwarded-For entry which the attacker
- * controls.
+ * The caller's IP as resolved by Express using app.set('trust proxy', 1).
+ *
+ * Do NOT read X-Forwarded-For directly. The API is reachable on
+ * http://<host>:3001 without a proxy in front, so any client can send its own
+ * X-Forwarded-For and pick the IP that lands in this audit log — which is what
+ * made the IP column of the last incident report untrustworthy.
  */
 const clientIp = (req) => req.ip || req.connection?.remoteAddress || '';
+
+const ipBucketId = (ip, hour) => {
+  const safe = String(ip || 'unknown').replace(/[^a-fA-F0-9.:]/g, '_').slice(0, 80);
+  return `ip:${safe}:h:${hour}`;
+};
 
 const denial = (status, code, message, extra = {}) => ({
   ok: false,
@@ -125,15 +136,23 @@ const denial = (status, code, message, extra = {}) => ({
   ...extra,
 });
 
-// ── Alert helper ─────────────────────────────────────────────────────────────
-// Loud console.error that ops tools (PM2 logs, CloudWatch, etc.) can alert on.
-// Extend this to push Firebase / Slack / email notifications as needed.
+/**
+ * Single place where a cap breach is announced.
+ *
+ * Right now it is a loud console.error that PM2 / CloudWatch log alerts can
+ * match on the "*** ALERT ***" marker. This is deliberately ONE function so
+ * that wiring real-time alerting is a one-line change rather than a hunt
+ * through the guard.
+ *
+ * TODO: push to the admin via Firebase (services/pushNotificationService.js is
+ * already wired), or an email / Slack webhook. An attack that runs for six
+ * hours before anyone notices is the expensive kind.
+ */
 const alertAdmin = (tag, data) => {
   console.error(`[OTP-GUARD] *** ALERT *** ${tag}`, JSON.stringify(data));
-  // TODO: add Firebase push / email / Slack webhook here for real-time alerts
 };
 
-// ── Validation ───────────────────────────────────────────────────────────────
+// ── format / geography ────────────────────────────────────────────────────────
 
 const validateOtpPhoneFormat = (phoneNumber) => {
   const normalized = normalizeOtpPhone(phoneNumber);
@@ -145,25 +164,8 @@ const validateOtpPhoneFormat = (phoneNumber) => {
     );
   }
 
-  const prefix = countryPrefixOf(normalized);
-
-  // ALLOWLIST check — if configured, only these countries are allowed
-  const allowed = allowedPrefixes();
-  if (allowed.length > 0) {
-    if (!allowed.some((a) => normalized.startsWith(a))) {
-      return denial(
-        400,
-        'COUNTRY_BLOCKED',
-        'SMS to this country is currently unavailable.'
-      );
-    }
-    // Allowlist passed — skip blocklist
-    return { ok: true, phoneNumber: normalized, countryPrefix: prefix };
-  }
-
-  // BLOCKLIST fallback — only when allowlist is not configured
   const blocked = blockedPrefixes();
-  if (blocked.some((b) => normalized.startsWith(b))) {
+  if (blocked.some((prefix) => normalized.startsWith(prefix))) {
     return denial(
       400,
       'COUNTRY_BLOCKED',
@@ -171,7 +173,20 @@ const validateOtpPhoneFormat = (phoneNumber) => {
     );
   }
 
-  return { ok: true, phoneNumber: normalized, countryPrefix: prefix };
+  const allowed = allowedPrefixes();
+  if (allowed.length && !allowed.some((prefix) => normalized.startsWith(prefix))) {
+    return denial(
+      400,
+      'COUNTRY_BLOCKED',
+      'SMS to this country is temporarily unavailable.'
+    );
+  }
+
+  return {
+    ok: true,
+    phoneNumber: normalized,
+    countryPrefix: countryPrefixOf(normalized),
+  };
 };
 
 const countSentSince = (filter, since) =>
@@ -181,16 +196,12 @@ const countSentSince = (filter, since) =>
     createdAt: { $gte: since },
   });
 
-// ── Budget bucket IDs ────────────────────────────────────────────────────────
-const hourBucket = () => `global:${new Date().toISOString().slice(0, 13)}`;
-const dayBucket = () => `global-day:${new Date().toISOString().slice(0, 10)}`;
-const countryHourBucket = (prefix) =>
-  `country:${prefix}:${new Date().toISOString().slice(0, 13)}`;
-
-// ── Main guard ───────────────────────────────────────────────────────────────
+// ── the guard ─────────────────────────────────────────────────────────────────
 
 /**
  * @param {{ phoneNumber: string, req: import('express').Request, endpoint: string, userId?: string|null }} args
+ * @returns {Promise<object>} ok:true carries `reservations` — pass the whole
+ *          object to releaseOtpBudget() if the send does not happen.
  */
 const assertCanSendOtp = async ({ phoneNumber, req, endpoint, userId = null }) => {
   const format = validateOtpPhoneFormat(phoneNumber);
@@ -211,161 +222,165 @@ const assertCanSendOtp = async ({ phoneNumber, req, endpoint, userId = null }) =
     return { ...format, phoneNumber: meta.phoneNumber, countryPrefix: prefix, meta };
   }
 
+  const deny = (status, code, message, extra = {}) => ({
+    ...denial(status, code, message, extra),
+    phoneNumber: normalized,
+    countryPrefix: prefix,
+    meta,
+  });
+
   const now = Date.now();
 
-  // ── Per-number cooldown ──────────────────────────────────────────────────
+  // ── 1. cheap, non-mutating checks first ────────────────────────────────────
   const coolSec = cooldownSeconds();
   const lastSent = await OtpSendLog.findOne({
     phoneNumber: normalized,
     result: 'sent',
     createdAt: { $gte: new Date(now - coolSec * 1000) },
-  }).sort({ createdAt: -1 }).lean();
+  })
+    .sort({ createdAt: -1 })
+    .lean();
 
   if (lastSent) {
     const elapsed = Math.floor((now - new Date(lastSent.createdAt).getTime()) / 1000);
     const retryAfterSeconds = Math.max(coolSec - elapsed, 1);
-    return {
-      ...denial(
-        429,
-        'OTP_COOLDOWN',
-        `Please wait ${retryAfterSeconds}s before requesting another code.`
-      ),
-      retryAfterSeconds,
-      phoneNumber: normalized,
-      countryPrefix: prefix,
-      meta,
-    };
+    return deny(
+      429,
+      'OTP_COOLDOWN',
+      `Please wait ${retryAfterSeconds}s before requesting another code.`,
+      { retryAfterSeconds }
+    );
   }
 
-  // ── Per-number 15-min window ─────────────────────────────────────────────
   const windowCount = await countSentSince(
     { phoneNumber: normalized },
     new Date(now - 15 * 60 * 1000)
   );
   if (windowCount >= perPhoneWindowMax()) {
-    return {
-      ...denial(
-        429,
-        'PHONE_CAPPED',
-        'Too many codes sent to this number. Please try again in a few minutes.'
-      ),
-      phoneNumber: normalized,
-      countryPrefix: prefix,
-      meta,
-    };
+    return deny(
+      429,
+      'PHONE_CAPPED',
+      'Too many codes sent to this number. Please try again in a few minutes.'
+    );
   }
 
-  // ── Per-number daily ─────────────────────────────────────────────────────
   const dailyCount = await countSentSince(
     { phoneNumber: normalized },
     new Date(now - 24 * 60 * 60 * 1000)
   );
   if (dailyCount >= perPhoneDailyMax()) {
-    return {
-      ...denial(
-        429,
-        'PHONE_CAPPED',
-        'Too many codes sent to this number today. Please try again tomorrow.'
-      ),
-      phoneNumber: normalized,
-      countryPrefix: prefix,
-      meta,
-    };
+    return deny(
+      429,
+      'PHONE_CAPPED',
+      'Too many codes sent to this number today. Please try again tomorrow.'
+    );
   }
 
-  // ── Per-country hourly cap (non-primary countries only) ──────────────────
-  const primary = primaryCountryCodes();
-  if (!primary.some((p) => normalized.startsWith(p))) {
-    const countryCap = secondaryCountryHourlyCap();
-    const countryBucket = countryHourBucket(prefix);
-    const countryRes = await OtpBudget.reserve(countryBucket, countryCap, 7200_000);
-    if (!countryRes.allowed) {
-      alertAdmin('SECONDARY_COUNTRY_CAP_HIT', {
-        prefix,
-        count: countryRes.count,
-        cap: countryCap,
+  // ── 2. atomic reservations — these are what a concurrent burst hits ────────
+  const hour = OtpBudget.hourBucket();
+  const day = OtpBudget.dayBucket();
+  const reservations = [];
+
+  const claim = async (bucketId, cap) => {
+    const res = await OtpBudget.reserve(bucketId, cap);
+    if (res.ok) reservations.push(bucketId);
+    return res;
+  };
+
+  const abort = async (status, code, message, alertTag, detail) => {
+    await OtpBudget.releaseAll(reservations);
+    if (alertTag) {
+      alertAdmin(alertTag, {
+        ...detail,
+        endpoint,
         ip: meta.ip,
         phone: meta.maskedPhone,
-        endpoint,
-      });
-      return {
-        ...denial(
-          429,
-          'COUNTRY_CAPPED',
-          'Verification is temporarily unavailable. Please try again later.'
-        ),
-        phoneNumber: normalized,
         countryPrefix: prefix,
-        meta,
-      };
+      });
+    }
+    return deny(status, code, message);
+  };
+
+  const ipClaim = await claim(ipBucketId(meta.ip, hour), perIpHourlyCap());
+  if (!ipClaim.ok) {
+    return abort(
+      429,
+      'IP_CAPPED',
+      'Too many verification requests from this network. Please try again later.',
+      'IP_HOURLY_CAP_HIT',
+      { count: ipClaim.count, cap: perIpHourlyCap() }
+    );
+  }
+
+  // Per-number hourly reservation — closes the race the per-phone log counts
+  // above cannot close on their own.
+  const phoneClaim = await claim(`phone:${normalized}:h:${hour}`, perPhoneWindowMax());
+  if (!phoneClaim.ok) {
+    return abort(
+      429,
+      'PHONE_CAPPED',
+      'Too many codes sent to this number. Please try again in a few minutes.'
+    );
+  }
+
+  // Per-country hourly cap for anything outside the primary markets.
+  const primary = primaryPrefixes();
+  if (!primary.includes(prefix)) {
+    const cap = secondaryCountryHourlyCap();
+    const countryClaim = await claim(`country:${prefix}:h:${hour}`, cap);
+    if (!countryClaim.ok) {
+      return abort(
+        429,
+        'COUNTRY_CAPPED',
+        'Verification is temporarily unavailable. Please try again later.',
+        'SECONDARY_COUNTRY_CAP_HIT',
+        { countryPrefix: prefix, count: countryClaim.count, cap }
+      );
     }
   }
 
-  // ── ATOMIC global hourly cap ─────────────────────────────────────────────
-  const hCap = globalHourlyCap();
-  const hBucket = hourBucket();
-  const hourlyRes = await OtpBudget.reserve(hBucket, hCap, 7200_000);
-  if (!hourlyRes.allowed) {
-    alertAdmin('GLOBAL_HOURLY_CAP_HIT', {
-      sentLastHour: hourlyRes.count,
-      cap: hCap,
-      ip: meta.ip,
-      phone: meta.maskedPhone,
-      endpoint,
-    });
-    return {
-      ...denial(
-        429,
-        'OTP_GLOBAL_CAP',
-        'Verification is temporarily unavailable. Please try again later.'
-      ),
-      phoneNumber: normalized,
-      countryPrefix: prefix,
-      meta,
-    };
+  const globalHour = await claim(`global:h:${hour}`, globalHourlyCap());
+  if (!globalHour.ok) {
+    return abort(
+      429,
+      'OTP_GLOBAL_CAP',
+      'Verification is temporarily unavailable. Please try again later.',
+      'GLOBAL_HOURLY_CAP_HIT',
+      { count: globalHour.count, cap: globalHourlyCap() }
+    );
   }
 
-  // ── ATOMIC global daily cap ──────────────────────────────────────────────
-  const dCap = globalDailyCap();
-  const dBucket = dayBucket();
-  const dailyRes = await OtpBudget.reserve(dBucket, dCap, 90_000_000); // ~25 hours
-  if (!dailyRes.allowed) {
-    // Also release the hourly reservation since we're denying
-    await OtpBudget.release(hBucket);
-    alertAdmin('GLOBAL_DAILY_CAP_HIT', {
-      sentToday: dailyRes.count,
-      cap: dCap,
-      ip: meta.ip,
-      phone: meta.maskedPhone,
-      endpoint,
-    });
-    return {
-      ...denial(
-        429,
-        'OTP_GLOBAL_CAP',
-        'Verification is temporarily unavailable. Please try again later.'
-      ),
-      phoneNumber: normalized,
-      countryPrefix: prefix,
-      meta,
-    };
+  const globalDay = await claim(`global:d:${day}`, globalDailyCap());
+  if (!globalDay.ok) {
+    return abort(
+      429,
+      'OTP_GLOBAL_CAP',
+      'Verification is temporarily unavailable. Please try again later.',
+      'GLOBAL_DAILY_CAP_HIT',
+      { count: globalDay.count, cap: globalDailyCap() }
+    );
   }
 
-  return { ok: true, phoneNumber: normalized, countryPrefix: prefix, meta };
+  return {
+    ok: true,
+    phoneNumber: normalized,
+    countryPrefix: prefix,
+    meta,
+    reservations,
+  };
 };
 
-// ── Budget release (call when Twilio send fails) ─────────────────────────────
-
-const releaseGlobalBudget = async () => {
-  try {
-    await OtpBudget.release(hourBucket());
-    await OtpBudget.release(dayBucket());
-  } catch (err) {
-    console.error('[OTP-GUARD] budget release failed', err.message);
-  }
+/**
+ * Hand budget back when an ok:true check did NOT result in a Twilio send —
+ * Twilio threw, or the controller bailed out (already registered, not found).
+ * Safe to call more than once; it clears the list.
+ */
+const releaseOtpBudget = async (check) => {
+  if (!check || !Array.isArray(check.reservations) || !check.reservations.length) return;
+  const ids = check.reservations;
+  check.reservations = [];
+  await OtpBudget.releaseAll(ids);
 };
-
-// ── Logging ──────────────────────────────────────────────────────────────────
 
 const RESULT_BY_CODE = {
   INVALID_PHONE: 'invalid_phone',
@@ -373,6 +388,7 @@ const RESULT_BY_CODE = {
   COUNTRY_CAPPED: 'country_capped',
   OTP_COOLDOWN: 'cooldown',
   PHONE_CAPPED: 'phone_capped',
+  IP_CAPPED: 'ip_capped',
   OTP_GLOBAL_CAP: 'global_capped',
 };
 
@@ -397,18 +413,6 @@ const logOtpSend = async ({
       errorCode: errorCode || '',
       errorMessage: String(errorMessage || '').slice(0, 300),
     });
-
-    // ── Volume alerting ────────────────────────────────────────────────────
-    // Alert if more than 10 sends in the last hour (real traffic is 1-2/day).
-    const lastHourCount = await countSentSince({}, new Date(Date.now() - 3600_000));
-    if (lastHourCount >= 10 && lastHourCount % 5 === 0) {
-      alertAdmin('HIGH_VOLUME', {
-        sendsLastHour: lastHourCount,
-        latestPhone: meta.maskedPhone,
-        latestIp: meta.ip,
-        endpoint: meta.endpoint,
-      });
-    }
   } catch (err) {
     console.error('[OTP-GUARD] failed to write audit log', err.message);
   }
@@ -420,9 +424,11 @@ module.exports = {
   normalizeOtpPhone,
   validateOtpPhoneFormat,
   assertCanSendOtp,
+  releaseOtpBudget,
   logOtpSend,
-  releaseGlobalBudget,
   resultForDenial,
   maskPhone,
   clientIp,
+  countryPrefixOf,
+  alertAdmin,
 };
