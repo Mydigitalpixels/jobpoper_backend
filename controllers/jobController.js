@@ -205,9 +205,9 @@ const extractLocationStrings = (jobLocation, jobType) => {
   return [...new Set(locations.filter((loc) => loc && loc.trim().length > 0))];
 };
 
-// Helper: create in-app notifications for users with a saved Location within 25km of the job (Haversine).
+// Helper: create in-app notifications for users with a saved Location within 60km of the job (Haversine).
 const createJobCreatedNotifications = async (job, jobCreatorId) => {
-  const RADIUS_KM = 25;
+  const RADIUS_KM = 60;
   const MAX_RECIPIENTS = 500;
 
   try {
@@ -931,7 +931,7 @@ const getAllJobs = asyncHandler(async (req, res) => {
         ...getDistancePipeline(userLat, userLng),
         {
           $match: {
-            distance: { $lte: 25 }, // 25km radius
+            distance: { $lte: 60 }, // 60km radius
           },
         },
       ];
@@ -1217,7 +1217,7 @@ const getHotJobs = asyncHandler(async (req, res) => {
       ...getDistancePipeline(userLat, userLng),
       {
         $match: {
-          distance: { $lte: 25 } // 25km radius
+          distance: { $lte: 60 } // 60km radius
         }
       }
     ];
@@ -1340,7 +1340,7 @@ const searchHotJobs = asyncHandler(async (req, res) => {
         ...getDistancePipeline(userLat, userLng),
         {
             $match: {
-                distance: { $lte: 25 } // 25km radius
+                distance: { $lte: 60 } // 60km radius
             }
         }
     ];
@@ -1456,7 +1456,7 @@ const getNormalJobs = asyncHandler(async (req, res) => {
         ...getDistancePipeline(userLat, userLng),
         {
             $match: {
-                distance: { $lte: 25 } // 25km radius
+                distance: { $lte: 60 } // 60km radius
             }
         }
     ];
@@ -1579,7 +1579,7 @@ const searchNormalJobs = asyncHandler(async (req, res) => {
         ...getDistancePipeline(userLat, userLng),
         {
             $match: {
-                distance: { $lte: 25 } // 25km radius
+                distance: { $lte: 60 } // 60km radius
             }
         }
     ];
